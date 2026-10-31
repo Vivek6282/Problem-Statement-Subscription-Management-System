@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowUpRight } from 'lucide-react'
+import { AlertCircle, ArrowRight } from 'lucide-react'
 import { AuthLayout } from './AuthLayout'
 import { useAuth } from './AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -61,23 +61,23 @@ export const RegisterPage: React.FC = () => {
 
   return (
     <AuthLayout mode="register">
-      <span className="bl-eyebrow">A FRESH START</span>
+      <span className="auth-eyebrow">A fresh start</span>
       <h1>
         Make yourself
         <br />
         <em>right at home.</em>
       </h1>
-      <p className="bl-auth-description">
+      <p className="auth-lede">
         Create your account. Bring your subscriptions together.
       </p>
       {error && (
-        <div className="bl-notice bl-notice-error" role="alert">
-          <AlertCircle size={18} />
+        <div className="auth-notice" role="alert">
+          <AlertCircle size={16} aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
-      <form onSubmit={handleSubmit} className="bl-form">
-        <div className="bl-form-row">
+      <form onSubmit={handleSubmit} className="auth-form">
+        <div className="auth-row">
           <Input
             label="First name"
             name="first_name"
@@ -105,7 +105,7 @@ export const RegisterPage: React.FC = () => {
           onChange={handleChange}
           placeholder="Your company"
         />
-        <div className="bl-form-row">
+        <div className="auth-row">
           <Input
             label="Email address"
             type="email"
@@ -126,7 +126,7 @@ export const RegisterPage: React.FC = () => {
             placeholder="+1 (555) 000-0000"
           />
         </div>
-        <div className="bl-form-row">
+        <div className="auth-row">
           <Input
             label="Password"
             type="password"
@@ -149,15 +149,15 @@ export const RegisterPage: React.FC = () => {
             placeholder="Repeat password"
           />
         </div>
-        <p className="bl-form-hint" id="password-guidance">
+        <p className="auth-hint" id="password-guidance">
           Use at least 9 characters, including uppercase and lowercase letters
           and a special character.
         </p>
-        <Button type="submit" className="bl-submit" isLoading={isLoading}>
-          Create account <ArrowUpRight size={17} />
+        <Button type="submit" className="auth-submit" isLoading={isLoading}>
+          Create account <ArrowRight size={16} aria-hidden="true" />
         </Button>
       </form>
-      <p className="bl-auth-switch">
+      <p className="auth-switch">
         Already have an account? <Link to="/login">Sign in</Link>
       </p>
     </AuthLayout>

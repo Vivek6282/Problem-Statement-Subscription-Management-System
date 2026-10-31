@@ -1,6 +1,6 @@
-﻿import React, { useState } from 'react'
+import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowUpRight } from 'lucide-react'
+import { AlertCircle, ArrowRight } from 'lucide-react'
 import { AuthLayout } from './AuthLayout'
 import { useAuth } from './AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -44,22 +44,22 @@ export const LoginPage: React.FC = () => {
 
   return (
     <AuthLayout>
-      <span className="bl-eyebrow">WELCOME BACK</span>
+      <span className="auth-eyebrow">Welcome back</span>
       <h1>
         A little clarity.
         <br />
         <em>Right this way.</em>
       </h1>
-      <p className="bl-auth-description">
+      <p className="auth-lede">
         Sign in to keep your subscriptions and payments in good order.
       </p>
       {error && (
-        <div className="bl-notice bl-notice-error" role="alert">
-          <AlertCircle size={18} />
+        <div className="auth-notice" role="alert">
+          <AlertCircle size={16} aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
-      <form onSubmit={handleSubmit} className="bl-form">
+      <form onSubmit={handleSubmit} className="auth-form">
         <Input
           label="Email address"
           type="email"
@@ -70,8 +70,8 @@ export const LoginPage: React.FC = () => {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@company.com"
         />
-        <div className="bl-password-field">
-          <div className="bl-field-heading">
+        <div>
+          <div className="auth-field-head">
             <label htmlFor="login-password">Password</label>
             <Link to="/forgot-password">Forgot password?</Link>
           </div>
@@ -86,21 +86,20 @@ export const LoginPage: React.FC = () => {
             placeholder="Enter your password"
           />
         </div>
-        <Button type="submit" className="bl-submit" isLoading={isLoading}>
-          Sign in <ArrowUpRight size={17} />
+        <Button type="submit" className="auth-submit" isLoading={isLoading}>
+          Sign in <ArrowRight size={16} aria-hidden="true" />
         </Button>
       </form>
-      <div className="bl-demo">
-        <span className="bl-eyebrow">JUST EXPLORING?</span>
-        <p>Choose a demo account to fill in the details.</p>
-        <div>
+      <div className="auth-demo">
+        <p className="auth-divider">Or try a demo account</p>
+        <div className="auth-demo-options">
           <button
             type="button"
             onClick={() =>
               fillCredentials('admin@brightloop.io', 'BrightloopAdmin@2026')
             }
           >
-            Admin <ArrowUpRight size={13} />
+            Admin
           </button>
           <button
             type="button"
@@ -108,7 +107,7 @@ export const LoginPage: React.FC = () => {
               fillCredentials('staff@brightloop.io', 'BrightloopStaff@2026')
             }
           >
-            Staff <ArrowUpRight size={13} />
+            Staff
           </button>
           <button
             type="button"
@@ -116,11 +115,11 @@ export const LoginPage: React.FC = () => {
               fillCredentials('acme@example.com', 'CustomerUser@2026')
             }
           >
-            Customer <ArrowUpRight size={13} />
+            Customer
           </button>
         </div>
       </div>
-      <p className="bl-auth-switch">
+      <p className="auth-switch">
         New here? <Link to="/register">Create your account</Link>
       </p>
     </AuthLayout>

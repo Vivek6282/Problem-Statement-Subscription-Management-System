@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowUpRight, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react'
 import { AuthLayout } from './AuthLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -32,26 +32,26 @@ export const ForgotPasswordPage: React.FC = () => {
 
   return (
     <AuthLayout mode="reset">
-      <span className="bl-eyebrow">LET?S GET YOU BACK IN</span>
+      <span className="auth-eyebrow">Let’s get you back in</span>
       <h1>
         A fresh start
         <br />
         <em>for your password.</em>
       </h1>
-      <p className="bl-auth-description">
-        Enter your email and we?ll send you reset instructions.
+      <p className="auth-lede">
+        Enter your email and we’ll send you reset instructions.
       </p>
       {isSubmitted ? (
-        <div className="bl-reset-success" role="status">
-          <CheckCircle2 size={28} />
+        <div className="auth-success" role="status">
+          <CheckCircle2 size={24} aria-hidden="true" />
           <h2>Check your inbox.</h2>
           <p>{message}</p>
-          <Link className="bl-text-link" to="/login">
-            <ArrowLeft size={15} /> Back to sign in
+          <Link className="auth-link" to="/login">
+            <ArrowLeft size={15} aria-hidden="true" /> Back to sign in
           </Link>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="bl-form">
+        <form onSubmit={handleSubmit} className="auth-form">
           <Input
             label="Email address"
             type="email"
@@ -62,11 +62,11 @@ export const ForgotPasswordPage: React.FC = () => {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@company.com"
           />
-          <Button type="submit" className="bl-submit" isLoading={isLoading}>
-            Send reset link <ArrowUpRight size={17} />
+          <Button type="submit" className="auth-submit" isLoading={isLoading}>
+            Send reset link <ArrowRight size={16} aria-hidden="true" />
           </Button>
-          <Link className="bl-text-link" to="/login">
-            <ArrowLeft size={15} /> Back to sign in
+          <Link className="auth-link" to="/login">
+            <ArrowLeft size={15} aria-hidden="true" /> Back to sign in
           </Link>
         </form>
       )}
