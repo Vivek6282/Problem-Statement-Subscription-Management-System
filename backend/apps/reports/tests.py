@@ -67,7 +67,7 @@ class EndToEndFlowTestCase(TestCase):
             'billing_interval': 'MONTHLY',
             'allow_pause': True,
             'allow_renewal': True
-        })
+        }, format='json')
         self.assertEqual(res_plan.status_code, 201)
         plan_id = res_plan.data['id']
 
@@ -87,7 +87,7 @@ class EndToEndFlowTestCase(TestCase):
                 }
             ]
         }, format='json')
-        self.assertEqual(res_quote.status_code, 201)
+        self.assertEqual(res_quote.status_code, 201, getattr(res_quote, 'data', None))
         quote_id = res_quote.data['id']
 
         # Convert quotation into subscription
@@ -97,6 +97,11 @@ class EndToEndFlowTestCase(TestCase):
 
         # 5. Subscription verification
         sub = Subscription.objects.get(id=sub_id)
+        # Spec lifecycle: confirming a quotation leaves the subscription Confirmed; it is activated as a separate step
+        self.assertEqual(sub.status, SubscriptionStatus.CONFIRMED)
+        res_act = self.client.post(f'/api/v1/subscriptions/{sub_id}/activate/')
+        self.assertEqual(res_act.status_code, 200)
+        sub.refresh_from_db()
         self.assertEqual(sub.status, SubscriptionStatus.ACTIVE)
         # Recurring Subtotal = Plan ($1000) + Item ($2560) = $3560
         self.assertEqual(sub.recurring_subtotal, Decimal('3560.00'))
