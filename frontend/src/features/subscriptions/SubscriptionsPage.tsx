@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Repeat,
   Plus,
@@ -14,10 +14,13 @@ import {
   DollarSign,
   AlertCircle,
   Eye,
+  History as HistoryIcon,
+  ClipboardCheck,
+  Pencil,
 } from 'lucide-react'
-import { api } from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import type { Subscription, Customer, Plan, Product, SubscriptionStatus } from '@/types'
+import { api, fetchAll, getApiError } from '@/lib/api'
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
+import type { Subscription, Customer, Plan, Product, SubscriptionStatus, Discount, HistoryEvent } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -27,11 +30,19 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { TableControls } from '@/components/ui/TableControls'
 
 export const SubscriptionsPage: React.FC = () => {
   const { isStaff, user } = useAuth()
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const [ordering, setOrdering] = useState('-created_at')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
 
@@ -40,11 +51,13 @@ export const SubscriptionsPage: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [discounts, setDiscounts] = useState<Discount[]>([])
 
   const [formSub, setFormSub] = useState({
     customer: '',
     plan: '',
-    status: 'ACTIVE' as SubscriptionStatus,
+    expiry_date: '',
+    discount: '',
     start_date: new Date().toISOString().split('T')[0],
     payment_terms: 'NET_30',
     notes: '',
@@ -52,11 +65,13 @@ export const SubscriptionsPage: React.FC = () => {
     selectedQuantity: 1,
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [editingSub, setEditingSub] = useState<Subscription | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
 
   // Subscription Detail Modal
   const [detailSub, setDetailSub] = useState<Subscription | null>(null)
+  const [history, setHistory] = useState<{ events: HistoryEvent[]; invoices: any[] } | null>(null)
 
   const fetchSubscriptions = async () => {
     setIsLoading(true)
@@ -65,10 +80,15 @@ export const SubscriptionsPage: React.FC = () => {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (statusFilter !== 'ALL') params.append('status', statusFilter)
+      params.append('page', String(page))
+      if (ordering) params.append('ordering', ordering)
+      if (dateFrom) params.append('start_date__gte', dateFrom)
+      if (dateTo) params.append('start_date__lte', dateTo)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
       setSubscriptions(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -76,36 +96,78 @@ export const SubscriptionsPage: React.FC = () => {
     }
   }
 
+  useEffect(() => {
+    if (!detailSub) {
+      setHistory(null)
+      return
+    }
+    api.get(`/subscriptions/${detailSub.id}/history/`)
+      .then((res) => setHistory(res.data))
+      .catch(() => setHistory(null))
+  }, [detailSub?.id])
+
   const loadPrerequisites = async () => {
     try {
-      const [cRes, pRes, prRes] = await Promise.all([
-        api.get('/customers/'),
-        api.get('/plans/'),
-        api.get('/products/'),
+      const [cRows, pRows, prRows, dRows] = await Promise.all([
+        fetchAll<Customer>('/customers/', { status: 'ACTIVE' }),
+        fetchAll<Plan>('/plans/', { is_active: 'true' }),
+        fetchAll<Product>('/products/', { is_active: 'true' }),
+        fetchAll<Discount>('/discounts/', { is_active: 'true' }),
       ])
-      setCustomers(cRes.data.results || cRes.data)
-      setPlans(pRes.data.results || pRes.data)
-      setProducts(prRes.data.results || prRes.data)
+      setCustomers(cRows)
+      setPlans(pRows)
+      setProducts(prRows)
+      setDiscounts(dRows)
+      return { cRows, pRows }
     } catch (err) {
       console.error(err)
+      return { cRows: [] as Customer[], pRows: [] as Plan[] }
     }
   }
 
   useEffect(() => {
+    const filterKey = String(search) + '|' + String(statusFilter) + '|' + String(ordering) + '|' + String(dateFrom) + '|' + String(dateTo)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchSubscriptions()
-  }, [search, statusFilter])
+  }, [search, statusFilter, ordering, dateFrom, dateTo, page])
 
-  const openCreateModal = () => {
-    loadPrerequisites()
+  const openCreateModal = async () => {
+    setEditingSub(null)
+    const { cRows, pRows } = await loadPrerequisites()
     setFormSub({
-      customer: customers[0]?.id ? String(customers[0].id) : '',
-      plan: plans[0]?.id ? String(plans[0].id) : '',
-      status: 'ACTIVE',
+      customer: cRows[0]?.id ? String(cRows[0].id) : '',
+      plan: pRows[0]?.id ? String(pRows[0].id) : '',
+      expiry_date: '',
+      discount: '',
       start_date: new Date().toISOString().split('T')[0],
       payment_terms: 'NET_30',
       notes: '',
       selectedProduct: '',
       selectedQuantity: 1,
+    })
+    setFormError(null)
+    setIsCreateOpen(true)
+  }
+
+  const openEditModal = async (sub: Subscription) => {
+    await loadPrerequisites()
+    const first = sub.items && sub.items.length === 1 ? sub.items[0] : null
+    setEditingSub(sub)
+    setFormSub({
+      customer: String(sub.customer),
+      plan: String(sub.plan),
+      expiry_date: sub.expiry_date || '',
+      discount: sub.discount ? String(sub.discount) : '',
+      start_date: sub.start_date,
+      payment_terms: sub.payment_terms,
+      notes: sub.notes || '',
+      selectedProduct: first ? String(first.product) : '',
+      selectedQuantity: first ? first.quantity : 1,
     })
     setFormError(null)
     setIsCreateOpen(true)
@@ -123,34 +185,40 @@ export const SubscriptionsPage: React.FC = () => {
         items.push({
           product: prodObj.id,
           quantity: Number(formSub.selectedQuantity) || 1,
-          unit_price: prodObj.sales_price,
         })
       }
     }
 
     try {
-      await api.post('/subscriptions/', {
+      const body: Record<string, unknown> = {
         customer: Number(formSub.customer),
         plan: Number(formSub.plan),
-        status: formSub.status,
         start_date: formSub.start_date,
+        expiry_date: formSub.expiry_date || null,
+        discount: formSub.discount ? Number(formSub.discount) : null,
         payment_terms: formSub.payment_terms,
         notes: formSub.notes,
-        items,
-      })
+      }
+      if (editingSub) {
+        // A subscription with several lines keeps them unless a single line is chosen here
+        if (!editingSub.items || editingSub.items.length <= 1 || formSub.selectedProduct) body.items = items
+        await api.patch(`/subscriptions/${editingSub.id}/`, body)
+      } else {
+        await api.post('/subscriptions/', { ...body, items })
+      }
       setIsCreateOpen(false)
       fetchSubscriptions()
-      setActionNotice('Subscription created successfully.')
+      setActionNotice(editingSub ? 'Subscription updated.' : 'Subscription created successfully.')
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setFormError(err?.response?.data?.detail || 'Failed to create subscription.')
+      setFormError(getApiError(err, editingSub ? 'Failed to update subscription.' : 'Failed to create subscription.'))
     } finally {
       setIsSaving(false)
     }
   }
 
   // Lifecycle transitions
-  const handleTransition = async (sub: Subscription, actionName: 'activate' | 'pause' | 'resume' | 'close' | 'trigger_billing') => {
+  const handleTransition = async (sub: Subscription, actionName: 'confirm' | 'activate' | 'pause' | 'resume' | 'close' | 'renew' | 'trigger_billing') => {
     setActionNotice(null)
     try {
       const res = await api.post(`/subscriptions/${sub.id}/${actionName}/`)
@@ -158,11 +226,11 @@ export const SubscriptionsPage: React.FC = () => {
       if (actionName === 'trigger_billing') {
         setActionNotice(`Billing triggered! ${res.data.message}`)
       } else {
-        setActionNotice(`Subscription ${sub.subscription_number} moved to ${actionName.toUpperCase()}.`)
+        setActionNotice(`Subscription ${sub.subscription_number}: ${res.data?.status ? 'now ' + res.data.status : actionName} ✓`)
       }
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setActionNotice(`Error: ${err?.response?.data?.error || err?.response?.data?.detail || err.message}`)
+      setActionNotice(`Error: ${getApiError(err)}`)
       setTimeout(() => setActionNotice(null), 5000)
     }
   }
@@ -230,11 +298,24 @@ export const SubscriptionsPage: React.FC = () => {
               <option value="ALL">All States</option>
               <option value="ACTIVE">Active</option>
               <option value="PAUSED">Paused</option>
+              <option value="QUOTATION">Quotation</option>
               <option value="CONFIRMED">Confirmed</option>
               <option value="DRAFT">Draft</option>
               <option value="CLOSED">Closed</option>
             </select>
           </div>
+        </CardContent>
+        <CardContent className="px-4 pb-4 pt-3 border-t border-slate-100">
+          <TableControls
+            orderingOptions={[{ label: 'Newest first', value: '-created_at' }, { label: 'Start date', value: 'start_date' }, { label: 'Next billing soonest', value: 'next_billing_date' }, { label: 'Number', value: 'subscription_number' }]}
+            ordering={ordering}
+            onOrderingChange={setOrdering}
+            dateLabel="Start date"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+          />
         </CardContent>
       </Card>
 
@@ -305,7 +386,22 @@ export const SubscriptionsPage: React.FC = () => {
                         </button>
 
                         {/* Lifecycle buttons */}
-                        {s.status === 'CONFIRMED' && (
+                        {isStaff && (s.status === 'DRAFT' || s.status === 'QUOTATION') && (
+                          <button
+                            onClick={() => openEditModal(s)}
+                            className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                            title="Edit Subscription"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {isStaff && (s.status === 'DRAFT' || s.status === 'QUOTATION') && (
+                          <Button size="sm" variant="outline" onClick={() => handleTransition(s, 'confirm')}>
+                            <ClipboardCheck className="w-3 h-3 mr-1" /> Confirm
+                          </Button>
+                        )}
+
+                        {isStaff && s.status === 'CONFIRMED' && (
                           <Button size="sm" variant="success" onClick={() => handleTransition(s, 'activate')}>
                             <Play className="w-3 h-3 mr-1 fill-current" /> Activate
                           </Button>
@@ -313,6 +409,7 @@ export const SubscriptionsPage: React.FC = () => {
 
                         {s.status === 'ACTIVE' && (
                           <>
+                            {s.plan_details?.allow_pause !== false && (
                             <button
                               onClick={() => handleTransition(s, 'pause')}
                               className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
@@ -320,6 +417,7 @@ export const SubscriptionsPage: React.FC = () => {
                             >
                               <Pause className="w-4 h-4" />
                             </button>
+                            )}
                             {isStaff && (
                               <button
                                 onClick={() => handleTransition(s, 'trigger_billing')}
@@ -360,7 +458,7 @@ export const SubscriptionsPage: React.FC = () => {
 
                         {s.status === 'CLOSED' && s.plan_details?.allow_renewal && (
                           <button
-                            onClick={() => handleTransition(s, 'activate')}
+                            onClick={() => handleTransition(s, 'renew')}
                             className="p-1.5 text-primary hover:bg-primary-50 rounded-lg transition-colors"
                             title="Renew Subscription"
                           >
@@ -374,6 +472,7 @@ export const SubscriptionsPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
@@ -436,6 +535,58 @@ export const SubscriptionsPage: React.FC = () => {
               </div>
             </div>
 
+            {detailSub.pricing && (
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                <h4 className="font-bold text-slate-900">Next Invoice Estimate</h4>
+                <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatCurrency(detailSub.pricing.subtotal)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">
+                    Discounts{detailSub.pricing.applied_discounts.length > 0 && ` (${detailSub.pricing.applied_discounts.map((d) => d.code).join(', ')})`}
+                  </span>
+                  <span>-{formatCurrency(detailSub.pricing.discount_total)}</span>
+                </div>
+                <div className="flex justify-between"><span className="text-slate-500">Taxes</span><span>+{formatCurrency(detailSub.pricing.tax_total)}</span></div>
+                <div className="flex justify-between border-t border-slate-200 pt-1 font-bold text-slate-900"><span>Total</span><span>{formatCurrency(detailSub.pricing.total)}</span></div>
+                {detailSub.discount_details && (
+                  <p className="text-[11px] text-green-700 pt-1">Discount {detailSub.discount_details.code} is attached and applies automatically while valid.</p>
+                )}
+                <p className="text-[11px] text-slate-400">Payment terms: {detailSub.payment_terms.replace('_', ' ')}{detailSub.expiry_date ? ` · Expires ${formatDate(detailSub.expiry_date)}` : ''}</p>
+              </div>
+            )}
+
+            <div>
+              <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1.5"><HistoryIcon className="w-3.5 h-3.5" /> Status History</h4>
+              {!history ? (
+                <p className="text-slate-400">Loading history…</p>
+              ) : history.events.length === 0 ? (
+                <p className="text-slate-400">No recorded events yet.</p>
+              ) : (
+                <ul className="space-y-1 max-h-40 overflow-y-auto">
+                  {history.events.map((e) => (
+                    <li key={e.id} className="flex items-start justify-between gap-3 p-2 bg-white border border-slate-200 rounded-lg">
+                      <span className="text-slate-700">{e.description}</span>
+                      <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatDateTime(e.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {history && history.invoices.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="font-bold text-slate-900 mb-1">Billing History</h4>
+                  <ul className="space-y-1 max-h-32 overflow-y-auto">
+                    {history.invoices.map((i) => (
+                      <li key={i.id} className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded-lg">
+                        <span className="font-mono font-semibold">{i.invoice_number}</span>
+                        <span className="text-slate-500">{formatDate(i.period_start)} – {formatDate(i.period_end)}</span>
+                        <span className="font-bold">{formatCurrency(i.total_amount)}</span>
+                        <Badge variant={i.status === 'PAID' ? 'success' : i.status === 'OVERDUE' ? 'danger' : 'info'}>{i.status}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
             {detailSub.notes && (
               <div className="p-3 bg-slate-50 rounded-lg">
                 <p className="font-bold text-slate-700">Internal Notes:</p>
@@ -450,8 +601,8 @@ export const SubscriptionsPage: React.FC = () => {
       <Modal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Create New Subscription"
-        description="Attach client to recurring plan and configure add-on items."
+        title={editingSub ? `Edit Subscription ${editingSub.subscription_number}` : 'Create New Subscription'}
+        description={editingSub ? 'Only Draft and Quotation subscriptions can be edited. Totals are recalculated by the system.' : 'Attach client to recurring plan and configure add-on items.'}
         maxWidth="lg"
       >
         <form onSubmit={handleCreateSubscription} className="space-y-4">
@@ -465,6 +616,7 @@ export const SubscriptionsPage: React.FC = () => {
             <Select
               label="Select Customer"
               required
+              disabled={!!editingSub}
               value={formSub.customer}
               onChange={(e) => setFormSub({ ...formSub, customer: e.target.value })}
               options={customers.map((c) => ({
@@ -493,15 +645,13 @@ export const SubscriptionsPage: React.FC = () => {
               value={formSub.start_date}
               onChange={(e) => setFormSub({ ...formSub, start_date: e.target.value })}
             />
-            <Select
-              label="Initial Status"
-              value={formSub.status}
-              onChange={(e: any) => setFormSub({ ...formSub, status: e.target.value })}
-              options={[
-                { label: 'Active', value: 'ACTIVE' },
-                { label: 'Draft', value: 'DRAFT' },
-                { label: 'Confirmed', value: 'CONFIRMED' },
-              ]}
+            <Input
+              label="Expiry Date"
+              type="date"
+              min={formSub.start_date}
+              value={formSub.expiry_date}
+              onChange={(e) => setFormSub({ ...formSub, expiry_date: e.target.value })}
+              helperText="Optional"
             />
             <Select
               label="Payment Terms"
@@ -515,6 +665,22 @@ export const SubscriptionsPage: React.FC = () => {
               ]}
             />
           </div>
+
+          <Select
+            label="Subscription Discount (optional)"
+            value={formSub.discount}
+            onChange={(e: any) => setFormSub({ ...formSub, discount: e.target.value })}
+            options={[
+              { label: 'No discount', value: '' },
+              ...discounts.map((d) => ({
+                label: `${d.code} — ${d.name} (${d.discount_type === 'PERCENTAGE' ? d.value + '%' : formatCurrency(d.value)})`,
+                value: d.id,
+              })),
+            ]}
+          />
+          <p className="text-[11px] text-slate-500 -mt-2">
+            New subscriptions start as Draft. Prices and taxes are calculated by the system from the product, variant and tax rules.
+          </p>
 
           {/* Add Optional Product Item */}
           <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-200/60">
@@ -563,7 +729,7 @@ export const SubscriptionsPage: React.FC = () => {
               Cancel
             </Button>
             <Button type="submit" isLoading={isSaving}>
-              Create Subscription
+              {editingSub ? 'Save Changes' : 'Create Subscription'}
             </Button>
           </div>
         </form>
