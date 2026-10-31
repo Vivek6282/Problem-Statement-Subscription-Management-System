@@ -67,10 +67,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     isLoading,
     isAuthenticated: !!user,
-    // Staff accounts also carry is_staff=true, so is_staff alone never makes an admin.
-    // Django superusers count as admins (and therefore staff).
-    isAdmin: user?.role === 'ADMIN' || !!user?.is_superuser,
-    isStaff: user?.role === 'STAFF' || user?.role === 'ADMIN' || !!user?.is_staff || !!user?.is_superuser,
+    // Staff accounts also carry is_staff=true, so only the role identifies an admin.
+    isAdmin: user?.role === 'ADMIN',
+    isStaff: user?.role === 'STAFF' || user?.role === 'ADMIN',
     isCustomer: user?.role === 'CUSTOMER',
     login,
     register,
@@ -88,3 +87,4 @@ export const useAuth = () => {
   }
   return context
 }
+
