@@ -31,7 +31,7 @@ const roleBadge: Record<string, 'danger' | 'info' | 'success'> = {
   CUSTOMER: 'success',
 }
 
-/** Admin-only screen for adding staff and admin accounts and switching access on or off. */
+/** Admin-only screen for adding staff and admin accounts, changing ADMIN/STAFF roles and switching access on or off. */
 export const TeamPage: React.FC = () => {
   // Admin-only access is enforced by <RoleRoute allow="admin"> in App.tsx and by the API.
   const { user: currentUser } = useAuth()
@@ -105,6 +105,22 @@ export const TeamPage: React.FC = () => {
       fetchUsers()
     } catch (err) {
       setListError(formatApiError(err, `Could not ${action.toLowerCase()} this account.`))
+    }
+  }
+
+  const changeRole = async (u: User, role: string) => {
+    if (role === u.role) return
+    if (!window.confirm(`Change ${u.email} from ${u.role} to ${role}?`)) {
+      fetchUsers() // reset the select to the stored role
+      return
+    }
+    setListError(null)
+    try {
+      await api.patch(`/auth/users/${u.id}/`, { role })
+      fetchUsers()
+    } catch (err) {
+      setListError(formatApiError(err, 'Could not change this role.'))
+      fetchUsers()
     }
   }
 
@@ -202,7 +218,19 @@ export const TeamPage: React.FC = () => {
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">{u.email}</td>
                       <td className="py-3.5 px-4">
-                        <Badge variant={roleBadge[u.role] || 'neutral'}>{u.role}</Badge>
+                        {!isSelf && (u.role === 'ADMIN' || u.role === 'STAFF') ? (
+                          <select
+                            value={u.role}
+                            onChange={(e) => changeRole(u, e.target.value)}
+                            aria-label={`Change role for ${u.email}`}
+                            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <option value="ADMIN">ADMIN</option>
+                            <option value="STAFF">STAFF</option>
+                          </select>
+                        ) : (
+                          <Badge variant={roleBadge[u.role] || 'neutral'}>{u.role}</Badge>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">{formatDate(u.date_joined)}</td>
                       <td className="py-3.5 px-4">
