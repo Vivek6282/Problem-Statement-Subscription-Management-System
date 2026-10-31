@@ -25,6 +25,7 @@ import { DiscountsPage } from '@/features/discounts/DiscountsPage'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { AuditPage } from '@/features/audit/AuditPage'
 import { CustomerPortalPage } from '@/features/portal/CustomerPortalPage'
+import { LandingPage } from '@/features/landing/LandingPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,14 +42,14 @@ export const App: React.FC = () => {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            {/* Public Auth Routes */}
+            {/* Public Landing & Auth Routes */}
+            <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
             {/* Protected App Routes */}
             <Route element={<AppLayout />}>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/customers" element={<CustomersPage />} />
               <Route path="/products" element={<ProductsPage />} />
