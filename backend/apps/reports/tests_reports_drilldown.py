@@ -239,3 +239,4 @@ class ReportingDrillDownTests(TestCase):
         self.assertIn('attachment; filename="brightloop_invoices.csv"', res['Content-Disposition'])
         content = res.content.decode('utf-8')
         self.assertIn('Invoice Number,Customer,Status', content)
+

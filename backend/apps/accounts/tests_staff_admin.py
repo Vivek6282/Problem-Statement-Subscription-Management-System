@@ -190,3 +190,4 @@ class StaffAdminManagementTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         # Verify staff was not deleted
         self.assertTrue(User.objects.filter(id=self.staff.id).exists())
+

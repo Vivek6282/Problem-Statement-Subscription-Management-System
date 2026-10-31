@@ -95,3 +95,4 @@ Key Test Modules:
 - **Member 2 (Payments & Checkout):** When validating discounts during customer checkout, call `POST /api/v1/discounts/validate-code/`. It computes eligibility against cart subtotal, minimum quantity, and product restrictions.
 - **Member 3 (Billing & Subscription Lifecycle):** When generating invoices from active subscriptions, reference `subscription.normalized_mrr` or `plan.billing_interval`. The SQL MRR formulas in `apps/reports` will automatically pick up any active subscription updates immediately.
 - **Member 4 (Auth & Portal):** The `UserSerializer` now exposes `is_superuser` and `last_login`. Customers continue to be segmented through `CustomerAccessPolicyPermission` and cannot access internal staff/catalog administration endpoints.
+
