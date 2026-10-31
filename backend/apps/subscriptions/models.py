@@ -60,6 +60,14 @@ class Subscription(models.Model):
         default=PaymentTerms.NET_30
     )
     auto_renew = models.BooleanField(_('auto renew'), default=True)
+    discount = models.ForeignKey(
+        Discount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='subscriptions',
+        help_text=_("Subscription-level discount applied automatically to every invoice while it is valid")
+    )
     notes = models.TextField(_('internal notes'), blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -68,6 +76,11 @@ class Subscription(models.Model):
         verbose_name = _('subscription')
         verbose_name_plural = _('subscriptions')
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'next_billing_date'], name='sub_status_nextbill_idx'),
+            models.Index(fields=['customer', 'status'], name='sub_customer_status_idx'),
+            models.Index(fields=['-created_at'], name='sub_created_idx'),
+        ]
 
     def __str__(self):
         return f"{self.subscription_number} - {self.customer.name} ({self.status})"
@@ -157,7 +170,8 @@ class SubscriptionItem(models.Model):
         Discount,
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
+        related_name='subscription_items'
     )
 
     class Meta:
