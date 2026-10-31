@@ -28,7 +28,7 @@ import {
   Line,
 } from 'recharts'
 import { api } from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -233,7 +233,7 @@ export const ReportsPage: React.FC = () => {
 
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueTrends} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <BarChart data={mapTrendForChart(revenueTrends)} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <XAxis dataKey="month" stroke="#8A9585" fontSize={10} tickLine={false} />
                 <YAxis stroke="#8A9585" fontSize={10} tickLine={false} tickFormatter={(v) => `$${v}`} />
                 <Tooltip

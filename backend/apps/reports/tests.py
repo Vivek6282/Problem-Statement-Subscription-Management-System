@@ -175,3 +175,17 @@ class MRRDefinitionTestCase(TestCase):
 
         model_total = sum((s.normalized_mrr_exact for s in subs), Decimal('0')).quantize(Decimal('0.01'))
         self.assertEqual(model_total, calculate_mrr_sql())
+
+
+class RevenueTrendWireFormatTestCase(TestCase):
+    def test_dashboard_revenue_trend_money_is_decimal_strings(self):
+        admin = User.objects.create_superuser(email='trend@brightloop.io', password='AdminPassword@2026')
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        res = client.get('/api/v1/reports/dashboard/')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['revenue_trend'])
+        for point in res.data['revenue_trend']:
+            self.assertIsInstance(point['billed'], str)
+            self.assertIsInstance(point['collected'], str)
+            self.assertRegex(point['billed'], r'^\d+\.\d{2}$')

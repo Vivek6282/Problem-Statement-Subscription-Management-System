@@ -184,8 +184,8 @@ class DashboardMetricsView(views.APIView):
 
             revenue_trend.append({
                 'month': month_label,
-                'billed': float(billed),
-                'collected': float(collected)
+                'billed': f"{billed:.2f}",
+                'collected': f"{collected:.2f}"
             })
 
         # 8. Subscription status distribution

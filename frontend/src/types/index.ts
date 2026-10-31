@@ -275,6 +275,13 @@ export interface AuditEvent {
   created_at: string;
 }
 
+/** Money is a 2-decimal Decimal string on the wire. */
+export interface RevenueTrendPoint {
+  month: string;
+  billed: string;
+  collected: string;
+}
+
 export interface DashboardMetrics {
   metrics: {
     total_customers: number;
@@ -292,11 +299,7 @@ export interface DashboardMetrics {
     upcoming_renewals_count: number;
     churn_rate?: number | string;
   };
-  revenue_trend: Array<{
-    month: string;
-    billed: number;
-    collected: number;
-  }>;
+  revenue_trend: RevenueTrendPoint[];
   subscription_distribution: Array<{
     name: string;
     count: number;

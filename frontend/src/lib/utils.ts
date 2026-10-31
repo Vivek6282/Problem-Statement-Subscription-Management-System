@@ -48,3 +48,14 @@ export function formatDateTime(dateTimeString: string | null | undefined): strin
   }
 }
 
+
+/** Money stays a Decimal string in state; convert to a number only for chart data. */
+export function mapTrendForChart<T extends { billed: string | number; collected: string | number }>(
+  rows: T[] | undefined | null,
+): Array<Omit<T, 'billed' | 'collected'> & { billed: number; collected: number }> {
+  return (rows ?? []).map((row) => ({
+    ...row,
+    billed: Number(row.billed),
+    collected: Number(row.collected),
+  }))
+}

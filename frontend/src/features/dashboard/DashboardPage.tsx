@@ -26,7 +26,7 @@ import {
   Cell,
 } from 'recharts'
 import { api } from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
 import type { DashboardMetrics } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { StatusText } from '@/components/ui/StatusText'
@@ -347,7 +347,7 @@ export const DashboardPage: React.FC = () => {
         <div className="bl-chart-grid">
           <div className="h-72" role="img" aria-label="Billed versus collected over the last six months">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenue_trend} margin={{ top: 8, right: 0, left: 0, bottom: 0 }} barGap={4}>
+              <BarChart data={mapTrendForChart(revenue_trend)} margin={{ top: 8, right: 0, left: 0, bottom: 0 }} barGap={4}>
                 <CartesianGrid vertical={false} stroke="#E8ECE3" />
                 <XAxis dataKey="month" stroke="#8A9585" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis
