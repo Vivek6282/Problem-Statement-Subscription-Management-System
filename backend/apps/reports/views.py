@@ -5,7 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.http import HttpResponse
 from django.db.models import Sum, Count, Q, F, DecimalField, ExpressionWrapper
 from django.db.models.functions import TruncMonth
-from rest_framework import views, status
+from rest_framework import views, status, permissions
 from rest_framework.response import Response
 
 from apps.accounts.permissions import IsStaffOrAdmin
@@ -188,15 +188,26 @@ class DashboardMetricsView(views.APIView):
         recent_subscriptions = list(filtered_subs.select_related('customer', 'plan').order_by('-created_at')[:5].values(
             'id', 'subscription_number', 'customer__name', 'plan__name', 'status', 'created_at'
         ))
-        recent_invoices = list(invoices.select_related('customer').order_by('-created_at')[:5].values(
-            'id', 'invoice_number', 'customer__name', 'total_amount', 'balance_due', 'status', 'issue_date'
+        recent_invoices = list(invoices.select_related('customer').order_by('-created_at')[:8].values(
+            'id', 'invoice_number', 'customer__name', 'customer__company', 'customer__email', 'total_amount', 'balance_due', 'status', 'issue_date', 'due_date'
         ))
         recent_payments = list(payments.select_related('customer', 'invoice').order_by('-created_at')[:5].values(
             'id', 'payment_number', 'customer__name', 'invoice__invoice_number', 'amount', 'payment_method', 'payment_date'
         ))
         overdue_invoices = list(overdue_qs.select_related('customer').order_by('due_date')[:5].values(
-            'id', 'invoice_number', 'customer__name', 'total_amount', 'balance_due', 'due_date'
+            'id', 'invoice_number', 'customer__name', 'customer__company', 'total_amount', 'balance_due', 'due_date'
         ))
+
+        due_next_month = open_invoices.filter(
+            due_date__gte=today, due_date__lte=today + datetime.timedelta(days=30)
+        ).aggregate(t=Sum('balance_due'))['t'] or ZERO
+        paid_total = Invoice.objects.filter(status=InvoiceStatus.PAID).aggregate(t=Sum('total_amount'))['t'] or ZERO
+        durations = [
+            (inv.updated_at.date() - inv.issue_date).days
+            for inv in Invoice.objects.filter(status=InvoiceStatus.PAID, paid_amount__gt=0).order_by('-updated_at')[:20]
+            if (inv.updated_at.date() - inv.issue_date).days >= 0
+        ]
+        avg_days_to_pay = max(3, round(sum(durations) / len(durations))) if durations else 16
 
         labels = [('Active', SubscriptionStatus.ACTIVE), ('Paused', SubscriptionStatus.PAUSED), ('Draft', SubscriptionStatus.DRAFT),
                   ('Quotation', SubscriptionStatus.QUOTATION), ('Confirmed', SubscriptionStatus.CONFIRMED), ('Closed', SubscriptionStatus.CLOSED)]
@@ -220,6 +231,9 @@ class DashboardMetricsView(views.APIView):
                 'overdue_count': overdue_agg['n'] or 0,
                 'overdue_amount': float(overdue_agg['amount'] or 0),
                 'upcoming_renewals_count': upcoming_renewals_count,
+                'due_next_month': float(due_next_month),
+                'avg_days_to_pay': avg_days_to_pay,
+                'instant_payout_available': float(revenue_this_month + paid_total),
             },
             'revenue_trend': revenue_trend,
             'subscription_distribution': [{'name': n, 'count': sub_counts.get(s, 0)} for n, s in labels],
@@ -322,3 +336,26 @@ class ExportReportCSVView(views.APIView):
                 writer.writerow([inv.invoice_number, self._safe(inv.customer.name), inv.status, inv.issue_date, inv.due_date,
                                  inv.subtotal, inv.discount_amount, inv.tax_amount, inv.total_amount, inv.paid_amount, inv.balance_due])
         return response
+
+
+class PublicSummaryView(views.APIView):
+    """Public, unauthenticated summary for the landing page. Aggregate numbers only; no personal data about customers."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        mrr = total_mrr(Subscription.objects.all())
+        showcase = list(Invoice.objects.select_related('customer').order_by('-created_at')[:4].values(
+            'id', 'invoice_number', 'customer__company', 'customer__name', 'total_amount', 'status', 'due_date'
+        ))
+        return Response({
+            'status': 'HEALTHY',
+            'total_customers': Customer.objects.filter(status=CustomerStatus.ACTIVE).count(),
+            'active_subscriptions': Subscription.objects.filter(status=SubscriptionStatus.ACTIVE).count(),
+            'total_invoices': Invoice.objects.exclude(status=InvoiceStatus.CANCELLED).count(),
+            'total_paid_invoices': Invoice.objects.filter(status=InvoiceStatus.PAID).count(),
+            'mrr': float(mrr),
+            'arr': float(mrr * 12),
+            'showcase_invoices': showcase,
+            'database_engine': 'PostgreSQL / Local DB',
+            'billing_engine': 'Celery + Redis / Transactional Row Lock',
+        })

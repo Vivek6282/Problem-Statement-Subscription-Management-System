@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, ArrowRight } from 'lucide-react'
+import { AuthLayout } from './AuthLayout'
 import { useAuth } from './AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { formatApiError } from '@/lib/apiErrors'
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth()
@@ -43,134 +45,115 @@ export const RegisterPage: React.FC = () => {
       await register(formData)
       navigate('/portal')
     } catch (err: any) {
-      const resp = err?.response?.data
-      if (resp) {
-        const firstErrKey = Object.keys(resp)[0]
-        const errVal = Array.isArray(resp[firstErrKey]) ? resp[firstErrKey][0] : resp[firstErrKey]
-        setError(`${firstErrKey}: ${errVal}`)
-      } else {
-        setError('Registration failed. Please check the details and try again.')
-      }
+      setError(
+        formatApiError(err, 'Registration failed. Please check the details and try again.'),
+      )
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-navy-950 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-8 border border-slate-100">
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-primary to-blue-400 flex items-center justify-center text-white mx-auto mb-3 shadow-lg shadow-primary/25">
-            <Sparkles className="w-6 h-6" />
-          </div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Create Customer Account</h1>
-          <p className="text-xs text-slate-500 mt-1">Get started with self-service subscription management</p>
+    <AuthLayout mode="register">
+      <span className="auth-eyebrow">A fresh start</span>
+      <h1>
+        Make yourself
+        <br />
+        <em>right at home.</em>
+      </h1>
+      <p className="auth-lede">
+        Create your account. Bring your subscriptions together.
+      </p>
+      {error && (
+        <div className="auth-notice" role="alert">
+          <AlertCircle size={16} aria-hidden="true" />
+          <span>{error}</span>
         </div>
-
-        {error && (
-          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-xs text-red-700 font-medium">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-3.5">
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="First Name"
-              name="first_name"
-              required
-              value={formData.first_name}
-              onChange={handleChange}
-              placeholder="Alice"
-            />
-            <Input
-              label="Last Name"
-              name="last_name"
-              required
-              value={formData.last_name}
-              onChange={handleChange}
-              placeholder="Smith"
-            />
-          </div>
-
+      )}
+      <form onSubmit={handleSubmit} className="auth-form">
+        <div className="auth-row">
           <Input
-            label="Company Name"
-            name="company_name"
-            value={formData.company_name}
+            label="First name"
+            name="first_name"
+            autoComplete="given-name"
+            required
+            value={formData.first_name}
             onChange={handleChange}
-            placeholder="Acme Innovations Ltd"
+            placeholder="Alice"
           />
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Work Email"
-              type="email"
-              name="email"
-              required
-              value={formData.email}
-              onChange={handleChange}
-              placeholder="alice@company.com"
-            />
-            <Input
-              label="Phone Number"
-              name="phone"
-              value={formData.phone}
-              onChange={handleChange}
-              placeholder="+1 (555) 000-0000"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Password"
-              type="password"
-              name="password"
-              required
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="Min. 9 characters"
-            />
-            <Input
-              label="Confirm Password"
-              type="password"
-              name="password_confirm"
-              required
-              value={formData.password_confirm}
-              onChange={handleChange}
-              placeholder="Confirm password"
-            />
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
-            <p className="font-semibold text-slate-700">Password Policy Requirements:</p>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-              <span>At least 9 characters long</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-              <span>Contains uppercase (A-Z) and lowercase (a-z) letters</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-              <span>Contains special character (!@#$%^&*)</span>
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full mt-2" size="lg" isLoading={isLoading}>
-            Complete Registration
-          </Button>
-        </form>
-
-        <div className="mt-6 text-center text-xs text-slate-500">
-          Already registered?{' '}
-          <Link to="/login" className="text-primary font-bold hover:underline">
-            Sign In here
-          </Link>
+          <Input
+            label="Last name"
+            name="last_name"
+            autoComplete="family-name"
+            required
+            value={formData.last_name}
+            onChange={handleChange}
+            placeholder="Smith"
+          />
         </div>
-      </div>
-    </div>
+        <Input
+          label="Company name (optional)"
+          name="company_name"
+          autoComplete="organization"
+          value={formData.company_name}
+          onChange={handleChange}
+          placeholder="Your company"
+        />
+        <div className="auth-row">
+          <Input
+            label="Email address"
+            type="email"
+            name="email"
+            autoComplete="email"
+            required
+            value={formData.email}
+            onChange={handleChange}
+            placeholder="you@company.com"
+          />
+          <Input
+            label="Phone (optional)"
+            type="tel"
+            name="phone"
+            autoComplete="tel"
+            value={formData.phone}
+            onChange={handleChange}
+            placeholder="+1 (555) 000-0000"
+          />
+        </div>
+        <div className="auth-row">
+          <Input
+            label="Password"
+            type="password"
+            name="password"
+            autoComplete="new-password"
+            aria-describedby="password-guidance"
+            required
+            value={formData.password}
+            onChange={handleChange}
+            placeholder="Create a password"
+          />
+          <Input
+            label="Confirm password"
+            type="password"
+            name="password_confirm"
+            autoComplete="new-password"
+            required
+            value={formData.password_confirm}
+            onChange={handleChange}
+            placeholder="Repeat password"
+          />
+        </div>
+        <p className="auth-hint" id="password-guidance">
+          Use at least 9 characters, including uppercase and lowercase letters
+          and a special character.
+        </p>
+        <Button type="submit" className="auth-submit" isLoading={isLoading}>
+          Create account <ArrowRight size={16} aria-hidden="true" />
+        </Button>
+      </form>
+      <p className="auth-switch">
+        Already have an account? <Link to="/login">Sign in</Link>
+      </p>
+    </AuthLayout>
   )
 }
-

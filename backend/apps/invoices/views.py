@@ -14,7 +14,9 @@ from apps.audit.models import AuditEvent
 from apps.discounts.models import Discount, DiscountRedemption
 from apps.payments.models import Payment
 from apps.subscriptions.maintenance import mark_overdue_invoices
-from .models import Invoice, InvoiceStatus
+from decimal import Decimal, InvalidOperation
+from apps.subscriptions.pricing import LineSpec, price_document
+from .models import Invoice, InvoiceItem, InvoiceStatus
 from .serializers import InvoiceSerializer, InvoiceWriteSerializer
 from .pdf import generate_invoice_pdf
 
@@ -171,3 +173,34 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         backend = settings.EMAIL_BACKEND.rsplit('.', 2)[-2] if '.' in settings.EMAIL_BACKEND else settings.EMAIL_BACKEND
         note = "" if backend != 'console' else " (console email backend: printed to the server log, not delivered - configure SMTP in .env)"
         return Response({'message': f"Invoice sent to {customer.email}{note}", 'email_backend': backend})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsStaffOrAdmin], url_path='add-item')
+    def add_item(self, request, pk=None):
+        """Adds a custom line to an open invoice. Tax comes from the tax rules; a client-supplied tax or discount is ignored."""
+        with transaction.atomic():
+            inv = Invoice.objects.select_for_update().get(pk=self.get_object().pk)
+            if inv.status in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED):
+                return self._bad("Cannot add items to paid or cancelled invoices.")
+            try:
+                quantity = int(request.data.get('quantity', 1))
+                unit_price = Decimal(str(request.data.get('unit_price', '500.00')))
+            except (ValueError, InvalidOperation):
+                return self._bad("Quantity and unit price must be numbers.")
+            if quantity < 1 or unit_price < 0:
+                return self._bad("Quantity must be at least 1 and the unit price cannot be negative.")
+            name = (request.data.get('product_name') or 'Professional Consulting & Support')[:255]
+            spec = LineSpec(name=name, sku=request.data.get('product_sku', 'SRV-CUSTOM'), variant_name=request.data.get('variant_name', ''),
+                            quantity=quantity, unit_price=unit_price)
+            line = price_document([spec], on_date=inv.issue_date).lines[0]
+            InvoiceItem.objects.create(
+                invoice=inv, product_name=name, product_sku=spec.sku, variant_name=spec.variant_name, quantity=quantity,
+                unit_price=unit_price, discount_amount=line.discount_total, tax_amount=line.tax,
+                line_total=line.total, tax_breakdown=line.tax_breakdown,
+            )
+            inv.recalculate_totals()
+            inv.refresh_from_db()
+            inv.refresh_payment_status()
+            inv.save(update_fields=['status', 'updated_at'])
+            AuditEvent.log_event('INVOICE_ITEM_ADDED', 'Invoice', inv.invoice_number,
+                                 f"Added item '{name}' ({line.total}) to invoice {inv.invoice_number}.", user=request.user)
+        return Response(self._out(inv))

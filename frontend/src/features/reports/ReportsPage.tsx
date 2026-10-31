@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 
-const COLORS = ['#2563EB', '#16A34A', '#F59E0B', '#9333EA', '#0F172A', '#06B6D4']
+const COLORS = ['#305D42', '#A8C09B', '#CC9D45', '#7D9E72', '#1F3327', '#CDD5C8']
 
 export const ReportsPage: React.FC = () => {
   const [productData, setProductData] = useState<any[]>([])
@@ -122,13 +122,13 @@ export const ReportsPage: React.FC = () => {
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={productData} layout="vertical" margin={{ left: 30, right: 20 }}>
-                <XAxis type="number" tickFormatter={(v) => `$${v}`} fontSize={11} stroke="#94A3B8" />
-                <YAxis dataKey="product_name" type="category" width={110} fontSize={10} stroke="#94A3B8" />
+                <XAxis type="number" tickFormatter={(v) => `$${v}`} fontSize={11} stroke="#8A9585" />
+                <YAxis dataKey="product_name" type="category" width={110} fontSize={10} stroke="#8A9585" />
                 <Tooltip
                   formatter={(val: any) => [formatCurrency(Number(val)), 'Total Revenue']}
-                  contentStyle={{ backgroundColor: '#0F172A', color: '#fff', borderRadius: '8px', fontSize: '12px' }}
+                  contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #DFE4DC', borderRadius: '12px', color: '#1F3327', fontSize: '12px' }}
                 />
-                <Bar dataKey="total_revenue" fill="#2563EB" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="total_revenue" fill="#305D42" radius={[0, 4, 4, 0]} maxBarSize={22} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -161,7 +161,7 @@ export const ReportsPage: React.FC = () => {
                 </Pie>
                 <Tooltip
                   formatter={(val: any) => [formatCurrency(Number(val)), 'Total Settled']}
-                  contentStyle={{ backgroundColor: '#0F172A', color: '#fff', borderRadius: '8px', fontSize: '12px' }}
+                  contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #DFE4DC', borderRadius: '12px', color: '#1F3327', fontSize: '12px' }}
                 />
               </PieChart>
             </ResponsiveContainer>

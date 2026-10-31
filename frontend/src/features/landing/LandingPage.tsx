@@ -1,489 +1,518 @@
-import React from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Sparkles,
   ArrowRight,
-  ShieldCheck,
-  Zap,
-  Repeat,
+  ArrowUpRight,
   FileText,
-  CreditCard,
-  BarChart3,
   Layers,
-  CheckCircle2,
-  Lock,
-  Globe,
-  Cpu,
-  Download,
-  Users,
-  ChevronRight,
-  ExternalLink,
+  Menu,
+  Repeat,
+  ShieldCheck,
+  X,
 } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
 import { useAuth } from '@/features/auth/AuthContext'
+import './landing.css'
 
-export const LandingPage: React.FC = () => {
+const features = [
+  {
+    icon: Repeat,
+    number: '01',
+    title: 'Subscriptions, engineered.',
+    description:
+      'Manage recurring plans across flexible intervals: daily, weekly, monthly, and annual. Handle renewals, pauses, resumes, and cancellations with deterministic state safety.',
+    detail: 'Complete lifecycle state management',
+  },
+  {
+    icon: FileText,
+    number: '02',
+    title: 'From proposal to recurring contract.',
+    description:
+      'Turn formal business quotations into ongoing subscriptions. Taxes, discounts, and line-item snapshots remain connected from initial quote to final settlement.',
+    detail: 'Snapshot-locked pricing & automated conversion',
+  },
+  {
+    icon: Layers,
+    number: '03',
+    title: 'Disciplined financial operations.',
+    description:
+      'Autonomous background workers advance billing dates, compute taxes, generate itemized PDF invoices, and allocate incoming payments with zero duplicate billing.',
+    detail: 'Idempotent worker execution & full audit logs',
+  },
+]
+
+const lifecycleSteps = [
+  {
+    title: 'Agreement & Pricing',
+    tag: 'Proposal',
+    desc: 'Catalog modeling with dynamic variant pricing, regional taxes, and snapshot-locked commercial terms.',
+  },
+  {
+    title: 'Autonomous Renewal',
+    tag: 'Idempotent',
+    desc: 'Scheduled workers advance billing dates safely across leap years and month-ends with database locks.',
+  },
+  {
+    title: 'Instant PDF Invoicing',
+    tag: 'Server-side',
+    desc: 'Sequentially numbered, tamper-proof invoices rendered and archived the second a cycle concludes.',
+  },
+  {
+    title: 'Reconciliation & Portal',
+    tag: 'Zero drift',
+    desc: 'Payments allocated to balances in real time, with immediate receipt access in the client portal.',
+  },
+]
+
+const workflowStages = [
+  {
+    step: '01',
+    title: 'Define your subscription models',
+    subtitle: 'Plan & Catalog Setup',
+    description:
+      'Set up products with customizable variants, define recurring intervals, and configure regional tax rules for automated calculation.',
+    specifications: [
+      { name: 'Interval Cadence', detail: 'Daily, Weekly, Monthly, and Annual options' },
+      { name: 'Variant Pricing', detail: 'Calculated dynamically from base prices' },
+      { name: 'Tax Policies', detail: 'Automated jurisdiction percentage application' },
+      { name: 'Discount Rules', detail: 'Usage-capped and percentage thresholds' },
+    ],
+    note: 'Flexible foundations for any recurring revenue model.',
+  },
+  {
+    step: '02',
+    title: 'Establish agreements & onboard clients',
+    subtitle: 'Commercial Quotations',
+    description:
+      'Generate professional quotations with validity dates. When approved, convert quotes directly into active subscriptions with automatic customer portal access.',
+    specifications: [
+      { name: 'Quotation Workflow', detail: 'Draft, send, validate, and convert seamlessly' },
+      { name: 'Customer Portal', detail: 'Instant client self-service account creation' },
+      { name: 'PDF Export', detail: 'Downloadable formal quotation documents' },
+      { name: 'Snapshot Lock', detail: 'Immutable agreement state upon acceptance' },
+    ],
+    note: 'Frictionless transition from proposal to recurring contract.',
+  },
+  {
+    step: '03',
+    title: 'Automate recurring billing & accounting',
+    subtitle: 'Autonomous Execution',
+    description:
+      'Background workers advance billing dates, generate itemized PDF invoices, record payments, and track outstanding balances automatically.',
+    specifications: [
+      { name: 'Idempotent Billing', detail: 'Database locking prevents duplicate invoicing' },
+      { name: 'Invoice Generation', detail: 'Automated sequential numbered invoices' },
+      { name: 'Payment Tracking', detail: 'Real-time allocation against balances due' },
+      { name: 'Audit Logging', detail: 'Every event recorded for accountability' },
+    ],
+    note: 'Disciplined recurring operations running quietly in the background.',
+  },
+]
+
+const cadences = ['Monthly', 'Quarterly', 'Annual'] as const
+type Cadence = (typeof cadences)[number]
+
+const cadenceDetails: Record<Cadence, { intervalLabel: string; advancePoint: string }> = {
+  Monthly: { intervalLabel: '30-day interval', advancePoint: 'T+30D' },
+  Quarterly: { intervalLabel: '90-day interval', advancePoint: 'T+90D' },
+  Annual: { intervalLabel: '365-day interval', advancePoint: 'T+365D' },
+}
+
+const guarantees = [
+  { icon: Repeat, label: 'Autonomous recurring engine' },
+  { icon: Layers, label: 'Dual-role tenant isolation' },
+  { icon: FileText, label: 'Server-side PDF invoicing' },
+  { icon: ShieldCheck, label: 'End-to-end audit trail' },
+]
+
+const navLinks = [
+  { href: '#features', label: 'Capabilities' },
+  { href: '#pipeline', label: 'Workflow' },
+  { href: '#guarantees', label: 'Guarantees' },
+]
+
+function Brand() {
+  return (
+    <span className="lp-brand">
+      <span className="lp-brand-mark" aria-hidden="true">
+        <Repeat size={15} strokeWidth={2.4} />
+      </span>
+      brightloop<span className="lp-brand-period">.</span>
+    </span>
+  )
+}
+
+export const LandingPage = () => {
   const { isAuthenticated, user } = useAuth()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [selectedCadence, setSelectedCadence] = useState<Cadence>('Monthly')
+  const [activeWorkflow, setActiveWorkflow] = useState(0)
+  const [copyrightYear] = useState(() => new Date().getFullYear())
+
+  const destination = isAuthenticated
+    ? user?.role === 'CUSTOMER'
+      ? '/portal'
+      : '/dashboard'
+    : '/register'
+
+  const actionLabel = isAuthenticated
+    ? user?.role === 'CUSTOMER'
+      ? 'Open portal'
+      : 'Open dashboard'
+    : 'Get started'
+
+  const currentWorkflow = workflowStages[activeWorkflow]
+  const cadence = cadenceDetails[selectedCadence]
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col selection:bg-primary selection:text-white">
-      {/* Top Navigation */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-slate-900/80 border-b border-slate-800/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          {/* Brand */}
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-blue-400 flex items-center justify-center text-white shadow-lg shadow-primary/30 group-hover:scale-105 transition-transform">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-extrabold text-xl tracking-tight text-white leading-tight">Brightloop</span>
-              <span className="text-[10px] text-blue-400 font-semibold tracking-wider uppercase">Billing Infrastructure</span>
-            </div>
+    <div className="landing-page">
+      <a className="lp-skip-link" href="#main-content">
+        Skip to content
+      </a>
+
+      <header className="lp-header">
+        <div className="lp-header-inner">
+          <Link to="/" aria-label="Brightloop home">
+            <Brand />
           </Link>
-
-          {/* Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
-            <a href="#features" className="hover:text-white transition-colors">Features</a>
-            <a href="#architecture" className="hover:text-white transition-colors">Architecture</a>
-            <a href="#plans" className="hover:text-white transition-colors">Pricing & Plans</a>
-            <a
-              href="http://127.0.0.1:8000/api/v1/docs/"
-              target="_blank"
-              rel="noreferrer"
-              className="hover:text-white transition-colors flex items-center gap-1"
-            >
-              API Docs <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-            </a>
+          <nav className="lp-desktop-nav" aria-label="Main navigation">
+            {navLinks.map(({ href, label }) => (
+              <a key={href} href={href}>
+                {label}
+              </a>
+            ))}
           </nav>
-
-          {/* Right CTAs */}
-          <div className="flex items-center gap-3">
-            {isAuthenticated ? (
-              <Link to={user?.role === 'CUSTOMER' ? '/portal' : '/dashboard'}>
-                <Button size="md" className="font-semibold shadow-md shadow-primary/25">
-                  Go to {user?.role === 'CUSTOMER' ? 'Customer Portal' : 'Dashboard'}
-                  <ArrowRight className="w-4 h-4 ml-1.5" />
-                </Button>
+          <div className="lp-header-actions">
+            {!isAuthenticated && (
+              <Link className="lp-sign-in" to="/login">
+                Sign in
               </Link>
-            ) : (
-              <>
-                <Link to="/login">
-                  <Button variant="ghost" size="md" className="text-slate-300 hover:text-white hover:bg-slate-800">
-                    Sign In
-                  </Button>
-                </Link>
-                <Link to="/register">
-                  <Button size="md" className="font-semibold shadow-md shadow-primary/25">
-                    Start Free
-                    <ArrowRight className="w-4 h-4 ml-1.5" />
-                  </Button>
-                </Link>
-              </>
             )}
+            <Link className="lp-button lp-button-small" to={destination}>
+              {actionLabel}
+              <ArrowUpRight size={14} />
+            </Link>
+            <button
+              className="lp-menu-toggle"
+              type="button"
+              aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+              aria-expanded={menuOpen}
+              aria-controls="lp-mobile-nav"
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              {menuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
           </div>
         </div>
+
+        {menuOpen && (
+          <nav
+            className="lp-mobile-nav"
+            id="lp-mobile-nav"
+            aria-label="Mobile navigation"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setMenuOpen(false)
+            }}
+          >
+            {navLinks.map(({ href, label }) => (
+              <a key={href} href={href} onClick={() => setMenuOpen(false)}>
+                {label}
+              </a>
+            ))}
+            {!isAuthenticated && <Link to="/login">Sign in</Link>}
+          </nav>
+        )}
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-20 pb-28 overflow-hidden">
-        {/* Glow Effects */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-primary/20 blur-[130px] rounded-full pointer-events-none -z-10" />
-        <div className="absolute top-1/3 right-10 w-[350px] h-[350px] bg-blue-500/10 blur-[100px] rounded-full pointer-events-none -z-10" />
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          {/* Tagline Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-xs font-semibold text-blue-300 mb-8 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            Brightloop Billing Core 2.0 • Django REST + React 19 Monorepo
-          </div>
-
-          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black text-white tracking-tight leading-[1.1] max-w-5xl mx-auto">
-            Automated Subscription Billing{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-primary to-indigo-400">
-              Without Friction or Leakage.
+      <main id="main-content">
+        {/* Hero */}
+        <section
+          className="lp-container lp-hero"
+          id="overview"
+          aria-labelledby="hero-title"
+        >
+          <div className="lp-hero-left">
+            <span className="lp-eyebrow">
+              <span className="lp-status-dot" aria-hidden="true" />
+              The disciplined subscription engine
             </span>
-          </h1>
 
-          <p className="mt-6 text-base sm:text-lg text-slate-400 max-w-3xl mx-auto leading-relaxed">
-            Brightloop unites transactional recurring billing engines, strict tenant isolation, immutable invoice snapshots, dynamic product variant adjustments, and customer self-service into an enterprise system.
-          </p>
+            <h1 id="hero-title">
+              Recurring revenue,
+              <br />
+              in <span>perfect rhythm.</span>
+            </h1>
 
-          {/* Action Buttons */}
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/login" className="w-full sm:w-auto">
-              <Button size="lg" className="w-full sm:w-auto text-base px-8 py-3.5 h-auto shadow-xl shadow-primary/25 font-bold">
-                Launch Live Dashboard
-                <ArrowRight className="w-5 h-5 ml-2" />
-              </Button>
-            </Link>
-            <a
-              href="http://127.0.0.1:8000/api/v1/docs/"
-              target="_blank"
-              rel="noreferrer"
-              className="w-full sm:w-auto"
-            >
-              <Button
-                variant="outline"
-                size="lg"
-                className="w-full sm:w-auto text-base px-6 py-3.5 h-auto border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-800 hover:text-white"
+            <p className="lp-hero-desc">
+              Brightloop brings subscription lifecycles, formal quotations,
+              automated invoicing, and payments into one calm workspace.
+              Engineered for accuracy. Crafted for simplicity.
+            </p>
+
+            <div className="lp-hero-actions">
+              <Link className="lp-button" to={destination}>
+                {actionLabel}
+                <ArrowUpRight size={16} />
+              </Link>
+              <a className="lp-text-link" href="#pipeline">
+                See how it works <ArrowRight size={15} />
+              </a>
+            </div>
+
+            <dl className="lp-hero-specs">
+              <div>
+                <dt>Deterministic billing</dt>
+                <dd>100%</dd>
+              </div>
+              <div>
+                <dt>Rounding discrepancy</dt>
+                <dd>±0.00</dd>
+              </div>
+              <div>
+                <dt>Admin & client portals</dt>
+                <dd>Dual</dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Cadence display */}
+          <div className="lp-hero-stage" aria-label="Subscription lifecycle">
+            <div className="lp-cadence-bar">
+              <div className="lp-cadence-label">
+                <span>Billing cadence</span>
+                <strong>{cadence.intervalLabel}</strong>
+              </div>
+              <div
+                className="lp-cadence-toggles"
+                role="tablist"
+                aria-label="Select billing interval"
               >
-                <Cpu className="w-5 h-5 mr-2 text-primary" />
-                OpenAPI Specification
-              </Button>
-            </a>
-          </div>
-
-          {/* Dashboard Preview Graphic */}
-          <div className="mt-16 max-w-5xl mx-auto relative group">
-            <div className="absolute -inset-1.5 bg-gradient-to-r from-primary via-blue-500 to-indigo-500 rounded-2xl blur-lg opacity-30 group-hover:opacity-50 transition duration-500" />
-            
-            <div className="relative rounded-2xl bg-slate-950 border border-slate-800 p-4 sm:p-6 shadow-2xl text-left">
-              {/* Fake Window Controls */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-red-500/80" />
-                  <span className="w-3 h-3 rounded-full bg-amber-500/80" />
-                  <span className="w-3 h-3 rounded-full bg-green-500/80" />
-                  <span className="ml-3 font-mono text-xs text-slate-500">brightloop.io/dashboard</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="success">All Services Operational</Badge>
-                  <span className="font-mono text-xs text-slate-500">API 10.4ms</span>
-                </div>
+                {cadences.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedCadence === c}
+                    className={`lp-cadence-toggle ${
+                      selectedCadence === c ? 'is-active' : ''
+                    }`}
+                    onClick={() => setSelectedCadence(c)}
+                  >
+                    {c}
+                  </button>
+                ))}
               </div>
+            </div>
 
-              {/* Live Mock Metrics Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-6">
-                <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
-                  <span className="text-[11px] font-semibold text-slate-400">Monthly Recurring Revenue</span>
-                  <p className="text-xl sm:text-2xl font-black text-white mt-1">$4,581.80</p>
-                  <span className="text-[10px] text-green-400 font-medium">↑ Normalized baseline</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
-                  <span className="text-[11px] font-semibold text-slate-400">Annual Run Rate (ARR)</span>
-                  <p className="text-xl sm:text-2xl font-black text-blue-400 mt-1">$54,981.60</p>
-                  <span className="text-[10px] text-slate-500 font-medium">MRR × 12 annualized</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
-                  <span className="text-[11px] font-semibold text-slate-400">Active Subscriptions</span>
-                  <p className="text-xl sm:text-2xl font-black text-green-400 mt-1">2 Live Tiers</p>
-                  <span className="text-[10px] text-slate-500 font-medium">0% churn leakage</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
-                  <span className="text-[11px] font-semibold text-slate-400">Billing Engine Health</span>
-                  <p className="text-xl sm:text-2xl font-black text-indigo-400 mt-1">100% Idempotent</p>
-                  <span className="text-[10px] text-slate-500 font-medium">Row lock guaranteed</span>
-                </div>
+            <div className="lp-rhythm">
+              <svg
+                className="lp-rhythm-canvas"
+                viewBox="0 0 400 24"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  className="lp-rhythm-path"
+                  d="M4 12 C 48 2, 90 2, 134.7 12 S 221 22, 265.3 12 S 352 2, 396 12"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+              <div className="lp-rhythm-dots" aria-hidden="true">
+                <span />
+                <span className="is-active" />
+                <span />
+                <span />
               </div>
+              <div className="lp-rhythm-stops">
+                <span>T+0</span>
+                <span className="is-active">{cadence.advancePoint}</span>
+                <span>Invoice</span>
+                <span>Settle</span>
+              </div>
+            </div>
 
-              {/* Interactive Quick Try CTA inside preview */}
-              <div className="mt-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">
-                    ⚡
+            <ol className="lp-milestones">
+              {lifecycleSteps.map((step, idx) => (
+                <li key={step.title} className="lp-milestone">
+                  <span className="lp-milestone-index">0{idx + 1}</span>
+                  <div>
+                    <div className="lp-milestone-head">
+                      <span className="lp-milestone-title">{step.title}</span>
+                      <span className="lp-milestone-tag">{step.tag}</span>
+                    </div>
+                    <p className="lp-milestone-desc">{step.desc}</p>
                   </div>
-                  <div className="text-xs">
-                    <span className="font-bold text-white">Preloaded with realistic enterprise demo data.</span>
-                    <span className="text-slate-400 ml-1">Explore as Administrator, Staff, or Client.</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* Guarantees */}
+        <div className="lp-container lp-principles" id="guarantees">
+          <span className="lp-eyebrow">Core system guarantees</span>
+          <ul className="lp-principles-list">
+            {guarantees.map(({ icon: Icon, label }) => (
+              <li key={label}>
+                <Icon size={15} strokeWidth={1.75} aria-hidden="true" />
+                {label}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Capabilities */}
+        <section
+          className="lp-container lp-section"
+          id="features"
+          aria-labelledby="features-title"
+        >
+          <div className="lp-section-heading">
+            <div>
+              <span className="lp-eyebrow">Thoughtfully connected</span>
+              <h2 id="features-title">
+                Everything you need.
+                <br />
+                <span>Nothing in your way.</span>
+              </h2>
+            </div>
+            <p>
+              Less time piecing systems together. More time moving your
+              business forward.
+            </p>
+          </div>
+
+          <div className="lp-features">
+            {features.map(
+              ({ icon: Icon, number, title, description, detail }) => (
+                <article className="lp-feature" key={number}>
+                  <span className="lp-feature-number">{number}</span>
+                  <div className="lp-feature-title">
+                    <Icon size={20} strokeWidth={1.5} aria-hidden="true" />
+                    <h3>{title}</h3>
                   </div>
-                </div>
-                <Link to="/login">
-                  <Button size="sm" variant="secondary" className="text-xs">
-                    Sign In with 1-Click Fill
-                  </Button>
-                </Link>
-              </div>
-            </div>
+                  <div className="lp-feature-copy">
+                    <p>{description}</p>
+                    <span className="lp-feature-detail">{detail}</span>
+                  </div>
+                </article>
+              ),
+            )}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Metrics Bar */}
-      <section className="py-12 border-y border-slate-800 bg-slate-950/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            <div>
-              <p className="text-3xl sm:text-4xl font-black text-white">10.4 ms</p>
-              <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-wider">Avg API Latency</p>
-            </div>
-            <div>
-              <p className="text-3xl sm:text-4xl font-black text-primary">100%</p>
-              <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-wider">Billing Idempotency</p>
-            </div>
-            <div>
-              <p className="text-3xl sm:text-4xl font-black text-green-400">0 Overpay</p>
-              <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-wider">Balance Guard Protection</p>
-            </div>
-            <div>
-              <p className="text-3xl sm:text-4xl font-black text-indigo-400">ACID Safe</p>
-              <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-wider">PostgreSQL + Celery</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-24 bg-slate-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-xs font-bold text-primary uppercase tracking-widest">Enterprise Architecture</h2>
-            <p className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-2">
-              Everything Needed to Power Subscription Billing
-            </p>
-            <p className="text-slate-400 text-sm mt-3">
-              Built from first principles for reliability, auditability, and speed.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between group">
+        {/* Workflow */}
+        <section
+          className="lp-workflow-section"
+          id="pipeline"
+          aria-labelledby="workflow-title"
+        >
+          <div className="lp-container lp-section">
+            <div className="lp-section-heading">
               <div>
-                <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <Repeat className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Automated Recurring Engine</h3>
-                <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                  Daily, weekly, monthly, and yearly recurring periods. Features leap-year safe arithmetic and database row-level locking (<code className="text-blue-300">select_for_update</code>) to prevent race conditions.
-                </p>
+                <span className="lp-eyebrow">A disciplined way forward</span>
+                <h2 id="workflow-title">
+                  Set it up.
+                  <br />
+                  <span>Find your flow.</span>
+                </h2>
               </div>
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center text-xs text-primary font-semibold">
-                <span>Safe Retries & Zero Duplicates</span>
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </div>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between group">
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <FileText className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Immutable Invoice Snapshots</h3>
-                <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                  Confirmed invoices capture an immutable snapshot of items, SKUs, and taxes. Historical accounting balances remain intact even when catalog product prices change.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center text-xs text-green-400 font-semibold">
-                <span>Vector ReportLab PDF Generation</span>
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </div>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between group">
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <CreditCard className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Payment Ledger & Overpay Guard</h3>
-                <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                  Transaction-safe payment recording with automatic balance reductions. Enforces balance constraints to prevent accidental overpayments while transitioning statuses.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center text-xs text-amber-400 font-semibold">
-                <span>Bank, UPI, Card, Cash & Gateways</span>
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </div>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between group">
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <Layers className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Product Variants & Price Delta</h3>
-                <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                  Support modular product variants with customized price delta adjustments (e.g. Base $2,000 + Odoo Module $560 = $2,560 unit price). Admin pricing controls enforced.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center text-xs text-indigo-400 font-semibold">
-                <span>Admin RBAC Pricing Guards</span>
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </div>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between group">
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <Users className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Customer Self-Service Portal</h3>
-                <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                  Dedicated tenant-isolated customer views (<code className="text-blue-300">/portal</code>). Customers can view active plans, download official invoice PDFs, inspect receipts, and pause or cancel subscriptions.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center text-xs text-blue-400 font-semibold">
-                <span>Strict Database Query Isolation</span>
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </div>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between group">
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <BarChart3 className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Real-Time MRR & Financial Metrics</h3>
-                <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                  Live normalized calculation of Monthly Recurring Revenue (MRR) and Annual Run Rate (ARR) based on normalized subscription frequency rather than cash timing. Includes CSV exports.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center text-xs text-purple-400 font-semibold">
-                <span>Accurate Revenue Recognition</span>
-                <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing / Plan Catalog Section */}
-      <section id="plans" className="py-24 bg-slate-950 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-xs font-bold text-primary uppercase tracking-widest">Subscription Tiers</h2>
-            <p className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-2">
-              Transparent, High-Velocity Plans
-            </p>
-            <p className="text-slate-400 text-sm mt-3">
-              Explore the billing plans preconfigured in Brightloop.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
-            {/* Plan 1 */}
-            <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <Badge variant="neutral">Starter</Badge>
-                <h3 className="text-xl font-bold text-white mt-4">Starter Monthly</h3>
-                <p className="text-xs text-slate-400 mt-1">Designed for agile teams starting subscription automation.</p>
-                <div className="mt-6">
-                  <span className="text-4xl font-black text-white">$99</span>
-                  <span className="text-xs text-slate-400 font-medium"> / month</span>
-                </div>
-                <ul className="mt-6 space-y-3 text-xs text-slate-300">
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Automated monthly cycles</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> PDF invoices & downloads</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Pause & resume allowed</li>
-                </ul>
-              </div>
-              <Link to="/login" className="mt-8">
-                <Button variant="outline" className="w-full text-xs border-slate-700 bg-slate-800 text-slate-200 hover:text-white">
-                  Subscribe via Portal
-                </Button>
-              </Link>
-            </div>
-
-            {/* Plan 2 - Featured */}
-            <div className="p-8 rounded-2xl bg-slate-900 border-2 border-primary relative flex flex-col justify-between shadow-xl shadow-primary/10">
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3 py-1 bg-primary text-white text-[11px] font-bold rounded-full uppercase tracking-wider">
-                Most Popular Tier
-              </div>
-              <div>
-                <Badge variant="default">Business</Badge>
-                <h3 className="text-xl font-bold text-white mt-4">Pro Business Monthly</h3>
-                <p className="text-xs text-slate-400 mt-1">Full feature access, priority engine execution, and unlimited invoices.</p>
-                <div className="mt-6">
-                  <span className="text-4xl font-black text-white">$499</span>
-                  <span className="text-xs text-slate-400 font-medium"> / month</span>
-                </div>
-                <ul className="mt-6 space-y-3 text-xs text-slate-300">
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Full variant adjustment engine</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Automated overdue detection</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Multi-method manual payments</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Audit logs & notifications</li>
-                </ul>
-              </div>
-              <Link to="/login" className="mt-8">
-                <Button className="w-full text-xs font-bold shadow-md shadow-primary/20">
-                  Subscribe via Portal
-                </Button>
-              </Link>
-            </div>
-
-            {/* Plan 3 */}
-            <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <Badge variant="neutral">Enterprise</Badge>
-                <h3 className="text-xl font-bold text-white mt-4">Enterprise Annual</h3>
-                <p className="text-xs text-slate-400 mt-1">Annual commitment with custom discount allocations and SLA.</p>
-                <div className="mt-6">
-                  <span className="text-4xl font-black text-white">$4,999</span>
-                  <span className="text-xs text-slate-400 font-medium"> / year</span>
-                </div>
-                <ul className="mt-6 space-y-3 text-xs text-slate-300">
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Annualized discount yield</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Dedicated customer portal access</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" /> Full CSV financial reporting</li>
-                </ul>
-              </div>
-              <Link to="/login" className="mt-8">
-                <Button variant="outline" className="w-full text-xs border-slate-700 bg-slate-800 text-slate-200 hover:text-white">
-                  Subscribe via Portal
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Security & Architecture Highlight */}
-      <section id="architecture" className="py-24 bg-slate-900 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800 flex flex-col lg:flex-row items-center justify-between gap-8">
-            <div className="max-w-xl space-y-4">
-              <Badge variant="info">Security & Compliance</Badge>
-              <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                Enterprise Data Isolation & Safe Financial Transitions
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                Brightloop isolates customer records at the ORM queryset level, guards authenticated sessions with SameSite HttpOnly cookies, and requires complex passwords (min. 9 characters with uppercase, lowercase, and special characters).
+              <p>
+                From catalog modeling to automated payment reconciliation. A
+                straightforward, auditable process at every step.
               </p>
-              <div className="flex flex-wrap items-center gap-4 pt-2">
-                <div className="flex items-center gap-1.5 text-xs text-slate-300 font-medium">
-                  <ShieldCheck className="w-4 h-4 text-green-400" /> HttpOnly + CSRF Guard
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-300 font-medium">
-                  <Lock className="w-4 h-4 text-blue-400" /> Role-Based Access Control
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-300 font-medium">
-                  <CheckCircle2 className="w-4 h-4 text-indigo-400" /> 100% Passing Test Suite
-                </div>
+            </div>
+
+            <div
+              className="lp-steps"
+              role="tablist"
+              aria-label="Explore the operational workflow"
+            >
+              {workflowStages.map((item, index) => (
+                <button
+                  key={item.title}
+                  type="button"
+                  role="tab"
+                  className={`lp-step ${activeWorkflow === index ? 'is-active' : ''}`}
+                  aria-selected={activeWorkflow === index}
+                  aria-controls="lp-workflow-spec"
+                  onClick={() => setActiveWorkflow(index)}
+                >
+                  <span className="lp-step-number">{item.step}</span>
+                  <span className="lp-step-body">
+                    <strong>{item.title}</strong>
+                    <span className="lp-step-description">
+                      {item.description}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div
+              className="lp-flow"
+              id="lp-workflow-spec"
+              role="tabpanel"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <div className="lp-flow-summary">
+                <span className="lp-eyebrow">Stage {currentWorkflow.step}</span>
+                <h3>{currentWorkflow.subtitle}</h3>
+                <p className="lp-flow-note">{currentWorkflow.note}</p>
               </div>
-            </div>
 
-            <div className="flex-shrink-0 w-full sm:w-auto">
-              <Link to="/login">
-                <Button size="lg" className="w-full sm:w-auto font-bold px-8">
-                  Sign In to Brightloop
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </Link>
+              <dl className="lp-flow-details">
+                {currentWorkflow.specifications.map(({ name, detail }) => (
+                  <div key={name}>
+                    <dt>{name}</dt>
+                    <dd>{detail}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
           </div>
+        </section>
+
+        {/* Final CTA */}
+        <section className="lp-final-section" aria-labelledby="cta-title">
+          <div className="lp-container lp-final-cta">
+            <div>
+              <span className="lp-eyebrow">Make room for what’s next</span>
+              <h2 id="cta-title">
+                Your business is growing.
+                <br />
+                <span>Keep things simple.</span>
+              </h2>
+              <p>Give your recurring revenue a place to feel at home.</p>
+            </div>
+            <Link className="lp-button lp-button-light" to={destination}>
+              {actionLabel}
+              <ArrowUpRight size={16} />
+            </Link>
+          </div>
+        </section>
+      </main>
+
+      <footer className="lp-container lp-footer">
+        <div>
+          <Link to="/" aria-label="Brightloop home">
+            <Brand />
+          </Link>
+          <p>A brighter way to manage recurring revenue.</p>
         </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-12 bg-slate-950 border-t border-slate-800 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-xs">
-              B
-            </div>
-            <span className="font-bold text-slate-300">Brightloop Subscription Management System</span>
-          </div>
-          <div className="flex items-center gap-6">
-            <a href="http://127.0.0.1:8000/api/v1/docs/" target="_blank" rel="noreferrer" className="hover:text-slate-300">Swagger Docs</a>
-            <Link to="/login" className="hover:text-slate-300">Login</Link>
-            <Link to="/register" className="hover:text-slate-300">Register</Link>
-          </div>
-          <p>© 2026 Brightloop. All rights reserved.</p>
+        <div className="lp-footer-right">
+          <nav aria-label="Footer navigation">
+            {navLinks.map(({ href, label }) => (
+              <a key={href} href={href}>
+                {label}
+              </a>
+            ))}
+            <Link to={isAuthenticated ? destination : '/login'}>
+              {isAuthenticated ? 'Your workspace' : 'Sign in'}
+              <ArrowUpRight size={13} />
+            </Link>
+          </nav>
+          <span>© {copyrightYear} Brightloop. Built with discipline.</span>
         </div>
       </footer>
     </div>

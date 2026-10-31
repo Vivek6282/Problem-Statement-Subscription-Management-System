@@ -333,8 +333,14 @@ export const QuotationsPage: React.FC = () => {
     <div className="space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Quotations & Proposals</h1>
-          <p className="text-xs text-slate-500 mt-1">Generate automated estimates, PDF proposals, and one-click subscription conversions</p>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            {isStaff ? 'Quotations & Proposals' : 'Your quotations'}
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {isStaff
+              ? 'Generate automated estimates, PDF proposals, and one-click subscription conversions'
+              : 'Proposals prepared for you. Download any of them as a PDF.'}
+          </p>
         </div>
         {isStaff && (
           <div className="flex items-center gap-2">
@@ -410,8 +416,8 @@ export const QuotationsPage: React.FC = () => {
         </div>
       ) : quotations.length === 0 ? (
         <EmptyState
-          title="No Quotations Found"
-          description="Prepare and export enterprise quotes."
+          title="No quotations yet"
+          description={isStaff ? 'Prepare and export enterprise quotes.' : 'When a proposal is prepared for you, it will appear here.'}
           actionLabel={isStaff ? 'New Quotation' : undefined}
           onAction={isStaff ? openCreateModal : undefined}
         />
@@ -457,14 +463,14 @@ export const QuotationsPage: React.FC = () => {
                         <button
                           onClick={() => handleDownloadPDF(q)}
                           className="p-1.5 text-slate-500 hover:text-primary hover:bg-primary-50 rounded-lg transition-colors"
-                          title="Download Official PDF"
+                          title="Download Official PDF" aria-label="Download Official PDF"
                         >
                           <Download className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setDetailQuote(q)}
                           className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                          title="View Details"
+                          title="View Details" aria-label="View Details"
                         >
                           <Eye className="w-4 h-4" />
                         </button>

@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     DashboardMetricsView,
+    PublicSummaryView,
     RevenueByProductReportView,
     RevenueByPlanReportView,
     PaymentMethodDistributionView,
@@ -8,6 +9,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('public-summary/', PublicSummaryView.as_view(), name='reports_public_summary'),
     path('dashboard/', DashboardMetricsView.as_view(), name='reports_dashboard'),
     path('revenue-by-product/', RevenueByProductReportView.as_view(), name='reports_revenue_by_product'),
     path('revenue-by-plan/', RevenueByPlanReportView.as_view(), name='reports_revenue_by_plan'),

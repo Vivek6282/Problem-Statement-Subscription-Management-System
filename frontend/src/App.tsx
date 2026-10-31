@@ -5,13 +5,13 @@ import { AuthProvider } from '@/features/auth/AuthContext'
 
 // Layouts
 import { AppLayout } from '@/components/layout/AppLayout'
+import { RoleRoute } from '@/components/layout/RoleRoute'
 
 // Pages
 import { LoginPage } from '@/features/auth/LoginPage'
 import { RegisterPage } from '@/features/auth/RegisterPage'
 import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
-import { RoleRoute } from '@/components/layout/RoleRoute'
 import { ProfilePage } from '@/features/auth/ProfilePage'
 
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
@@ -28,6 +28,8 @@ import { ReportsPage } from '@/features/reports/ReportsPage'
 import { AuditPage } from '@/features/audit/AuditPage'
 import { CustomerPortalPage } from '@/features/portal/CustomerPortalPage'
 import { LandingPage } from '@/features/landing/LandingPage'
+import { TeamPage } from '@/features/team/TeamPage'
+import { AccessDeniedPage } from '@/features/auth/AccessDeniedPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +67,11 @@ export const App: React.FC = () => {
                 <Route path="/audit" element={<AuditPage />} />
               </Route>
 
+              {/* Admin only */}
+              <Route element={<RoleRoute allow="admin" />}>
+                <Route path="/team" element={<TeamPage />} />
+              </Route>
+
               {/* Customer self-service portal */}
               <Route element={<RoleRoute allow="customer" />}>
                 <Route path="/portal" element={<CustomerPortalPage />} />
@@ -76,6 +83,7 @@ export const App: React.FC = () => {
               <Route path="/invoices" element={<InvoicesPage />} />
               <Route path="/payments" element={<PaymentsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/access-denied" element={<AccessDeniedPage />} />
             </Route>
 
             {/* Fallback */}

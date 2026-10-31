@@ -1,61 +1,75 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
+  AlertCircle,
+  CheckCircle2,
+  Download,
   FileText,
+  LayoutList,
+  Link2,
   Plus,
   Search,
-  Filter,
-  Download,
-  Mail,
-  CheckCircle2,
-  XCircle,
-  CreditCard,
-  Eye,
-  AlertTriangle,
+  Table as TableIcon,
+  X,
 } from 'lucide-react'
-import { api, fetchAll, getApiError } from '@/lib/api'
-import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
-import type { Invoice, Customer, InvoiceStatus, PaymentMethodType, HistoryEvent } from '@/types'
+import { api } from '@/lib/api'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import type { Invoice, Customer, InvoiceStatus, PaymentMethodType } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
-import { Modal } from '@/components/ui/Modal'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { Pagination } from '@/components/ui/Pagination'
-import { TableControls } from '@/components/ui/TableControls'
+import { getInvoiceStatus } from './invoiceStatus'
+
+const fieldClass =
+  'w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 hover:border-slate-300 focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/15 transition-colors'
+const labelClass = 'block text-xs font-medium text-slate-700 mb-1.5'
 
 export const InvoicesPage: React.FC = () => {
   const { isStaff } = useAuth()
-  const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [count, setCount] = useState(0)
-  const [ordering, setOrdering] = useState('-issue_date')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const lastFilterKey = useRef('')
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('ALL')
 
-  // Create Invoice Modal
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+
+  // Filters
+  const [activeTab, setActiveTab] = useState<'ALL' | 'DRAFT' | 'UNPAID'>('UNPAID')
+  const [search, setSearch] = useState('')
+  const [customerFilter, setCustomerFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [showTableView, setShowTableView] = useState(false)
+
+  // Feedback notifications
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Modals state
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false)
   const [formInv, setFormInv] = useState({
     customer: '',
     due_date: '',
     notes: '',
+    product_name: 'Product Consulting & Advisory',
+    quantity: 1,
+    unit_price: '2500.00',
+    tax_amount: '0.00',
+  })
+
+  // Add Item to existing invoice Modal
+  const [isAddItemOpen, setIsAddItemOpen] = useState(false)
+  const [isSavingItem, setIsSavingItem] = useState(false)
+  const [newItemForm, setNewItemForm] = useState({
     product_name: '',
     quantity: 1,
-    unit_price: '',
+    unit_price: '500.00',
+    discount_amount: '0.00',
+    tax_amount: '0.00',
   })
-  const [isSaving, setIsSaving] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
 
   // Payment Recording Modal
-  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null)
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
   const [payAmount, setPayAmount] = useState('')
   const [payMethod, setPayMethod] = useState<PaymentMethodType>('BANK_TRANSFER')
@@ -64,15 +78,10 @@ export const InvoicesPage: React.FC = () => {
   const [isRecordingPayment, setIsRecordingPayment] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
 
-  // Detail Modal
-  const [detailInv, setDetailInv] = useState<Invoice | null>(null)
-  const [invHistory, setInvHistory] = useState<{ events: HistoryEvent[]; payments: any[] } | null>(null)
-
-  // Draft editing (header fields; the line is editable when the draft has exactly one)
-  const [editInv, setEditInv] = useState<{ id: number; number: string; due_date: string; notes: string; single: boolean; product_name: string; quantity: number; unit_price: string } | null>(null)
-  const [editError, setEditError] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-  const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const showToast = (msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 5000)
+  }
 
   const fetchInvoices = async () => {
     setIsLoading(true)
@@ -80,18 +89,26 @@ export const InvoicesPage: React.FC = () => {
       let url = '/invoices/'
       const params = new URLSearchParams()
       if (search) params.append('search', search)
+      if (customerFilter !== 'ALL') params.append('customer', customerFilter)
       if (statusFilter !== 'ALL') params.append('status', statusFilter)
-      params.append('page', String(page))
-      if (ordering) params.append('ordering', ordering)
-      if (dateFrom) params.append('issue_date__gte', dateFrom)
-      if (dateTo) params.append('issue_date__lte', dateTo)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
-      setInvoices(res.data.results || res.data)
-      setCount(res.data.count ?? (res.data.results || res.data).length)
+      const data: Invoice[] = res.data.results || res.data
+      setInvoices(data)
+
+      // Retain or select active invoice
+      if (data.length > 0) {
+        setSelectedInvoice((prev) => {
+          if (!prev) return data[0]
+          const found = data.find((inv) => inv.id === prev.id)
+          return found || data[0]
+        })
+      } else {
+        setSelectedInvoice(null)
+      }
     } catch (err) {
-      console.error(err)
+      console.error('Failed to load invoices:', err)
     } finally {
       setIsLoading(false)
     }
@@ -99,87 +116,74 @@ export const InvoicesPage: React.FC = () => {
 
   const loadCustomers = async () => {
     try {
-      const rows = await fetchAll<Customer>('/customers/', { status: 'ACTIVE' })
-      setCustomers(rows)
-      return rows
+      const res = await api.get('/customers/')
+      setCustomers(res.data.results || res.data)
     } catch (err) {
       console.error(err)
-      return [] as Customer[]
     }
   }
 
   useEffect(() => {
-    if (!detailInv) {
-      setInvHistory(null)
-      return
-    }
-    api.get(`/invoices/${detailInv.id}/history/`).then((res) => setInvHistory(res.data)).catch(() => setInvHistory(null))
-  }, [detailInv?.id])
-
-  const openEdit = (inv: Invoice) => {
-    const only = inv.items && inv.items.length === 1 ? inv.items[0] : null
-    setEditInv({
-      id: inv.id, number: inv.invoice_number, due_date: inv.due_date, notes: inv.notes || '',
-      single: !!only, product_name: only?.product_name || '', quantity: only?.quantity || 1, unit_price: only ? String(only.unit_price) : '',
-    })
-    setEditError(null)
-  }
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!editInv) return
-    setIsEditing(true)
-    setEditError(null)
-    try {
-      const body: Record<string, unknown> = { due_date: editInv.due_date, notes: editInv.notes }
-      if (editInv.single) body.items = [{ product_name: editInv.product_name, quantity: Number(editInv.quantity) || 1, unit_price: editInv.unit_price }]
-      await api.patch(`/invoices/${editInv.id}/`, body)
-      setEditInv(null)
-      setDetailInv(null)
-      fetchInvoices()
-      setActionNotice(`Draft invoice ${editInv.number} updated.`)
-      setTimeout(() => setActionNotice(null), 5000)
-    } catch (err) {
-      setEditError(getApiError(err, 'Could not update the draft.'))
-    } finally {
-      setIsEditing(false)
-    }
-  }
-
-  useEffect(() => {
-    const filterKey = String(search) + '|' + String(statusFilter) + '|' + String(ordering) + '|' + String(dateFrom) + '|' + String(dateTo)
-    if (lastFilterKey.current !== filterKey && page !== 1) {
-      lastFilterKey.current = filterKey
-      setPage(1)
-      return
-    }
-    lastFilterKey.current = filterKey
     fetchInvoices()
-  }, [search, statusFilter, ordering, dateFrom, dateTo, page])
+    loadCustomers()
+  }, [search, customerFilter, statusFilter])
 
-  const openCreateModal = async () => {
-    const rows = await loadCustomers()
+  // Filtered invoices by active workbench tabs
+  const workbenchInvoices = useMemo(() => {
+    if (activeTab === 'DRAFT') {
+      return invoices.filter((i) => i.status === 'DRAFT')
+    }
+    if (activeTab === 'UNPAID') {
+      return invoices.filter((i) => ['CONFIRMED', 'PARTIALLY_PAID', 'OVERDUE'].includes(i.status) && Number(i.balance_due) > 0)
+    }
+    return invoices
+  }, [invoices, activeTab])
+
+  // Summary figures, computed only from the loaded invoices.
+  const metrics = useMemo(() => {
+    const now = new Date()
+    const thirtyDaysOut = new Date()
+    thirtyDaysOut.setDate(now.getDate() + 30)
+
+    const isOpen = (i: Invoice) => i.status !== 'DRAFT' && i.status !== 'CANCELLED' && Number(i.balance_due) > 0
+    const overdueInvoices = invoices.filter((i) => isOpen(i) && (i.status === 'OVERDUE' || new Date(i.due_date) < now))
+    const dueSoon = invoices.filter((i) => {
+      const d = new Date(i.due_date)
+      return isOpen(i) && d >= now && d <= thirtyDaysOut
+    })
+
+    return {
+      overdueTotal: overdueInvoices.reduce((acc, curr) => acc + Number(curr.balance_due || 0), 0),
+      overdueCount: overdueInvoices.length,
+      dueNextMonthTotal: dueSoon.reduce((acc, curr) => acc + Number(curr.balance_due || 0), 0),
+      dueNextMonthCount: dueSoon.length,
+      collectedTotal: invoices.reduce((acc, curr) => acc + Number(curr.paid_amount || 0), 0),
+      openBalance: invoices.filter(isOpen).reduce((acc, curr) => acc + Number(curr.balance_due || 0), 0),
+      draftCount: invoices.filter((i) => i.status === 'DRAFT').length,
+      unpaidCount: invoices.filter((i) => ['CONFIRMED', 'PARTIALLY_PAID', 'OVERDUE'].includes(i.status) && Number(i.balance_due) > 0).length,
+    }
+  }, [invoices])
+
+  const openCreateModal = () => {
     const d = new Date()
     d.setDate(d.getDate() + 30)
     setFormInv({
-      customer: rows[0]?.id ? String(rows[0].id) : '',
+      customer: customers[0]?.id ? String(customers[0].id) : '',
       due_date: d.toISOString().split('T')[0],
-      notes: '',
-      product_name: '',
+      notes: 'Payment due within 30 days of issue.',
+      product_name: 'Product Consulting & Advisory',
       quantity: 1,
-      unit_price: '',
+      unit_price: '2500.00',
+      tax_amount: '0.00',
     })
-    setFormError(null)
     setIsCreateOpen(true)
   }
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSaving(true)
-    setFormError(null)
-
+    setIsSavingInvoice(true)
     try {
-      await api.post('/invoices/', {
+      const res = await api.post('/invoices/', {
         customer: Number(formInv.customer),
         due_date: formInv.due_date,
         notes: formInv.notes,
@@ -188,75 +192,80 @@ export const InvoicesPage: React.FC = () => {
             product_name: formInv.product_name,
             quantity: Number(formInv.quantity) || 1,
             unit_price: formInv.unit_price,
+            tax_amount: formInv.tax_amount,
           },
         ],
       })
       setIsCreateOpen(false)
-      fetchInvoices()
-      setActionNotice('Draft invoice created.')
-      setTimeout(() => setActionNotice(null), 5000)
+      await fetchInvoices()
+      setSelectedInvoice(res.data)
+      showToast(`Invoice ${res.data.invoice_number} created successfully!`)
     } catch (err: any) {
-      setFormError(getApiError(err, 'Failed to generate invoice.'))
+      showToast(`Creation error: ${err?.response?.data?.detail || err.message}`)
     } finally {
-      setIsSaving(false)
+      setIsSavingInvoice(false)
     }
   }
 
-  const handleConfirm = async (inv: Invoice) => {
+  const handleDownloadPDF = async (inv?: Invoice | null) => {
+    const target = inv || selectedInvoice
+    if (!target) return
     try {
-      await api.post(`/invoices/${inv.id}/confirm/`)
-      setActionNotice(`Invoice ${inv.invoice_number} confirmed and marked due.`)
-      fetchInvoices()
-      setTimeout(() => setActionNotice(null), 5000)
-    } catch (err: any) {
-      setActionNotice(`Error: ${getApiError(err)}`)
-      setTimeout(() => setActionNotice(null), 5000)
-    }
-  }
-
-  const handleCancel = async (inv: Invoice) => {
-    if (!confirm(`Cancel invoice ${inv.invoice_number}?`)) return
-    try {
-      await api.post(`/invoices/${inv.id}/cancel/`)
-      setActionNotice(`Invoice ${inv.invoice_number} cancelled.`)
-      fetchInvoices()
-      setTimeout(() => setActionNotice(null), 5000)
-    } catch (err: any) {
-      setActionNotice(`Error: ${getApiError(err)}`)
-      setTimeout(() => setActionNotice(null), 5000)
-    }
-  }
-
-  const handleSendEmail = async (inv: Invoice) => {
-    try {
-      const res = await api.post(`/invoices/${inv.id}/send-email/`)
-      setActionNotice(res.data.message)
-      setTimeout(() => setActionNotice(null), 5000)
-    } catch (err: any) {
-      setActionNotice(`Error sending email: ${getApiError(err)}`)
-      setTimeout(() => setActionNotice(null), 5000)
-    }
-  }
-
-  const handleDownloadPDF = async (inv: Invoice) => {
-    try {
-      const res = await api.get(`/invoices/${inv.id}/pdf/`, { responseType: 'blob' })
+      const res = await api.get(`/invoices/${target.id}/pdf/`, { responseType: 'blob' })
       const blob = new Blob([res.data], { type: 'application/pdf' })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.setAttribute('download', `${inv.invoice_number}.pdf`)
+      link.setAttribute('download', `${target.invoice_number}.pdf`)
       document.body.appendChild(link)
       link.click()
       link.remove()
-    } catch (err) {
-      console.error('PDF error:', err)
+      showToast(`Downloaded PDF for ${target.invoice_number}`)
+    } catch (err: any) {
+      showToast('PDF download failed.')
     }
   }
 
-  const openPaymentModal = (inv: Invoice) => {
-    setSelectedInvoiceForPayment(inv)
-    setPayAmount(String(inv.balance_due))
+  const handleConfirmInvoice = async (inv?: Invoice | null) => {
+    const target = inv || selectedInvoice
+    if (!target) return
+    try {
+      const res = await api.post(`/invoices/${target.id}/confirm/`)
+      await fetchInvoices()
+      setSelectedInvoice(res.data)
+      showToast(`Invoice ${target.invoice_number} confirmed & activated.`)
+    } catch (err: any) {
+      showToast(err?.response?.data?.error || 'Could not confirm invoice.')
+    }
+  }
+
+  const handleAddItemToInvoice = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedInvoice) return
+    setIsSavingItem(true)
+    try {
+      const res = await api.post(`/invoices/${selectedInvoice.id}/add-item/`, {
+        product_name: newItemForm.product_name,
+        quantity: Number(newItemForm.quantity) || 1,
+        unit_price: newItemForm.unit_price,
+        discount_amount: newItemForm.discount_amount,
+        tax_amount: newItemForm.tax_amount,
+      })
+      setIsAddItemOpen(false)
+      setSelectedInvoice(res.data)
+      await fetchInvoices()
+      showToast(`Added '${newItemForm.product_name}' to ${selectedInvoice.invoice_number}!`)
+    } catch (err: any) {
+      showToast(err?.response?.data?.error || 'Failed to add item.')
+    } finally {
+      setIsSavingItem(false)
+    }
+  }
+
+  const openPaymentModal = (inv?: Invoice | null) => {
+    const target = inv || selectedInvoice
+    if (!target) return
+    setPayAmount(String(target.balance_due))
     setPayMethod('BANK_TRANSFER')
     setPayRef('')
     setPayNotes('')
@@ -266,532 +275,673 @@ export const InvoicesPage: React.FC = () => {
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedInvoiceForPayment) return
+    if (!selectedInvoice) return
     setIsRecordingPayment(true)
     setPayError(null)
-
     try {
       await api.post('/payments/', {
-        invoice: selectedInvoiceForPayment.id,
+        invoice: selectedInvoice.id,
         amount: payAmount,
         payment_method: payMethod,
         transaction_reference: payRef,
         notes: payNotes,
       })
       setIsPaymentModalOpen(false)
-      fetchInvoices()
-      setActionNotice(`Payment recorded for invoice ${selectedInvoiceForPayment.invoice_number}!`)
-      setTimeout(() => setActionNotice(null), 5000)
+      await fetchInvoices()
+      showToast(`Payment of $${payAmount} allocated to ${selectedInvoice.invoice_number}!`)
     } catch (err: any) {
-      setPayError(getApiError(err, 'Payment recording failed.'))
+      const resp = err?.response?.data
+      setPayError(resp?.non_field_errors?.[0] || resp?.amount?.[0] || resp?.detail || 'Payment processing error.')
     } finally {
       setIsRecordingPayment(false)
     }
   }
 
-  const getStatusBadge = (status: InvoiceStatus) => {
-    switch (status) {
-      case 'PAID':
-        return <Badge variant="success">Paid</Badge>
-      case 'PARTIALLY_PAID':
-        return <Badge variant="info">Partially Paid</Badge>
-      case 'CONFIRMED':
-        return <Badge variant="default">Due</Badge>
-      case 'OVERDUE':
-        return <Badge variant="danger">Overdue</Badge>
-      case 'DRAFT':
-        return <Badge variant="neutral">Draft</Badge>
-      case 'CANCELLED':
-        return <Badge variant="neutral">Cancelled</Badge>
-      default:
-        return <Badge variant="neutral">{status}</Badge>
-    }
+  const copyInvoiceLink = () => {
+    if (!selectedInvoice) return
+    const url = `${window.location.origin}/invoices?invoice=${selectedInvoice.invoice_number}`
+    navigator.clipboard.writeText(url)
+    showToast(`Payment link for ${selectedInvoice.invoice_number} copied to clipboard!`)
   }
+
+  const calculateRelativeDueDate = (dueDateStr: string, status: InvoiceStatus) => {
+    if (status === 'PAID') return 'Settled'
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const due = new Date(dueDateStr)
+    due.setHours(0, 0, 0, 0)
+    const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (diffDays < 0) return `Overdue ${Math.abs(diffDays)}d`
+    if (diffDays === 0) return 'Due today'
+    if (diffDays === 1) return 'In 1 day'
+    return `In ${diffDays} days`
+  }
+
+  // Customers never see drafts, so their views and figures leave them out.
+  const tabs = [
+    { key: 'UNPAID' as const, label: 'Unpaid', count: metrics.unpaidCount },
+    ...(isStaff ? [{ key: 'DRAFT' as const, label: 'Draft', count: metrics.draftCount }] : []),
+    { key: 'ALL' as const, label: 'All', count: invoices.length },
+  ]
+
+  const summary = [
+    {
+      label: 'Overdue',
+      value: formatCurrency(metrics.overdueTotal),
+      hint: `${metrics.overdueCount} ${metrics.overdueCount === 1 ? 'invoice' : 'invoices'}`,
+      danger: metrics.overdueCount > 0,
+    },
+    {
+      label: 'Due in the next 30 days',
+      value: formatCurrency(metrics.dueNextMonthTotal),
+      hint: `${metrics.dueNextMonthCount} ${metrics.dueNextMonthCount === 1 ? 'invoice' : 'invoices'}`,
+    },
+    { label: 'Collected', value: formatCurrency(metrics.collectedTotal), hint: 'Payments applied to invoices' },
+    isStaff
+      ? { label: 'Drafts', value: String(metrics.draftCount), hint: 'Not yet confirmed' }
+      : {
+          label: 'Open balance',
+          value: formatCurrency(metrics.openBalance),
+          hint: `${metrics.unpaidCount} unpaid ${metrics.unpaidCount === 1 ? 'invoice' : 'invoices'}`,
+        },
+  ]
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Invoice Management</h1>
-          <p className="text-xs text-slate-500 mt-1">Immutable billing snapshots, balance tracking, and PDF document delivery</p>
-        </div>
-        {isStaff && (
-          <Button onClick={openCreateModal}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            Create Invoice
-          </Button>
-        )}
-      </div>
-
-      {actionNotice && (
-        <div className="p-3 bg-navy-950 text-white rounded-xl text-xs font-semibold flex items-center justify-between border border-slate-700 animate-in fade-in">
-          <span>{actionNotice}</span>
-          <button onClick={() => setActionNotice(null)} className="text-slate-400 hover:text-white">✕</button>
+      {/* Toast */}
+      {toastMessage && (
+        <div
+          role="status"
+          className="fixed right-4 top-20 z-50 flex max-w-sm items-start gap-3 rounded-xl bg-navy-900 px-4 py-3 text-sm text-white shadow-lg sm:right-8"
+        >
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary-200" />
+          <span className="flex-1">{toastMessage}</span>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            className="-mr-1 rounded-full p-0.5 text-white/60 hover:text-white"
+            aria-label="Dismiss notification"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
-      {/* Filter and Search */}
-      <Card>
-        <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search invoice #, customer..."
-              className="pl-9"
-            />
-          </div>
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Invoices</h1>
+          <p className="mt-1 text-sm text-slate-500">Track what’s been billed, what’s due and what’s been paid.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowTableView(!showTableView)}
+            aria-pressed={showTableView}
+          >
+            {showTableView ? (
+              <LayoutList className="mr-1.5 h-3.5 w-3.5" />
+            ) : (
+              <TableIcon className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {showTableView ? 'Detail view' : 'Table view'}
+          </Button>
+          {isStaff && (
+            <Button size="sm" onClick={openCreateModal}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              New invoice
+            </Button>
+          )}
+        </div>
+      </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary"
+      {/* Summary */}
+      <Card className="grid grid-cols-2 gap-px overflow-hidden bg-slate-100 lg:grid-cols-4">
+        {summary.map((item) => (
+          <div key={item.label} className="bg-white px-5 py-5">
+            <p className="text-xs text-slate-500">{item.label}</p>
+            <p
+              className={cn(
+                'mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-slate-900',
+                item.danger && 'text-red-700',
+              )}
             >
-              <option value="ALL">All Statuses</option>
-              <option value="CONFIRMED">Due / Confirmed</option>
-              <option value="OVERDUE">Overdue</option>
-              <option value="PARTIALLY_PAID">Partially Paid</option>
-              <option value="PAID">Paid</option>
-              <option value="DRAFT">Draft</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
+              {item.value}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">{item.hint}</p>
           </div>
-        </CardContent>
-        <CardContent className="px-4 pb-4 pt-3 border-t border-slate-100">
-          <TableControls
-            orderingOptions={[{ label: 'Newest first', value: '-issue_date' }, { label: 'Oldest first', value: 'issue_date' }, { label: 'Due soonest', value: 'due_date' }, { label: 'Highest total', value: '-total_amount' }, { label: 'Highest balance', value: '-balance_due' }]}
-            ordering={ordering}
-            onOrderingChange={setOrdering}
-            dateLabel="Issued"
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            onDateFromChange={setDateFrom}
-            onDateToChange={setDateTo}
-          />
-        </CardContent>
+        ))}
       </Card>
 
-      {/* Invoices Table */}
-      {isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-xl" />
-          ))}
+      {/* Filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+{isStaff && (
+            <>
+          <label className="sr-only" htmlFor="invoice-customer-filter">Customer</label>
+          <select
+            id="invoice-customer-filter"
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="h-9 rounded-full border border-slate-200 bg-white px-3.5 text-xs font-medium text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-4 focus:ring-primary-500/15"
+          >
+            <option value="ALL">All customers</option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.company || c.name}
+              </option>
+            ))}
+          </select>
+            </>
+          )}
+          <label className="sr-only" htmlFor="invoice-status-filter">Status</label>
+          <select
+            id="invoice-status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-9 rounded-full border border-slate-200 bg-white px-3.5 text-xs font-medium text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-4 focus:ring-primary-500/15"
+          >
+            <option value="ALL">All statuses</option>
+            <option value="CONFIRMED">Due / Confirmed</option>
+            <option value="OVERDUE">Overdue</option>
+            <option value="PARTIALLY_PAID">Partially Paid</option>
+            <option value="PAID">Paid</option>
+            <option value="DRAFT">Draft (Unsent)</option>
+          </select>
         </div>
-      ) : invoices.length === 0 ? (
-        <EmptyState
-          title="No Invoices Found"
-          description={search ? `No invoices matched "${search}".` : 'No invoices generated yet.'}
-          actionLabel={isStaff ? 'Create Invoice' : undefined}
-          onAction={isStaff ? openCreateModal : undefined}
-        />
-      ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-bold">
-                <tr>
-                  <th className="py-3 px-4">Invoice #</th>
-                  <th className="py-3 px-4">Customer</th>
-                  <th className="py-3 px-4">Issue Date</th>
-                  <th className="py-3 px-4">Due Date</th>
-                  <th className="py-3 px-4">Total</th>
-                  <th className="py-3 px-4">Balance Due</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
-                      {inv.invoice_number}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-800">{inv.customer_details?.company || inv.customer_details?.name}</div>
-                      <div className="text-[11px] text-slate-400">{inv.customer_details?.name}</div>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600">
-                      {formatDate(inv.issue_date)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className={inv.is_overdue ? 'font-bold text-red-600' : 'text-slate-600'}>
-                        {formatDate(inv.due_date)}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900">
-                      {formatCurrency(inv.total_amount)}
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900">
-                      {formatCurrency(inv.balance_due)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {getStatusBadge(inv.status)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+        <div className="relative w-full sm:w-64">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search invoice number"
+            aria-label="Search invoices"
+            className="h-9 rounded-full pl-9 text-xs"
+          />
+        </div>
+      </div>
+
+      {!showTableView ? (
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          {/* List */}
+          <Card className="overflow-hidden lg:col-span-5">
+            <div className="border-b border-slate-100 p-3">
+              <div className="flex rounded-full bg-slate-100 p-1" role="tablist" aria-label="Invoice views">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={cn(
+                      'flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium transition-colors',
+                      activeTab === tab.key
+                        ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgba(31,51,39,0.08)]'
+                        : 'text-slate-500 hover:text-slate-900',
+                    )}
+                  >
+                    {tab.label}
+                    <span className="tabular-nums text-slate-400">{tab.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {isLoading ? (
+              <div className="space-y-2 p-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-xl" />
+                ))}
+              </div>
+            ) : workbenchInvoices.length === 0 ? (
+              <div className="px-6 py-14 text-center">
+                <FileText className="mx-auto h-5 w-5 text-slate-400" />
+                <p className="mt-3 text-sm font-medium text-slate-900">No invoices here</p>
+                <p className="mt-1 text-xs text-slate-500">Try another view or adjust the filters above.</p>
+              </div>
+            ) : (
+              <ul className="max-h-[560px] divide-y divide-slate-100 overflow-y-auto">
+                {workbenchInvoices.map((inv) => {
+                  const isSelected = selectedInvoice?.id === inv.id
+                  const status = getInvoiceStatus(inv.status, inv.is_overdue)
+                  return (
+                    <li key={inv.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInvoice(inv)}
+                        aria-current={isSelected ? 'true' : undefined}
+                        className={cn(
+                          'flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors',
+                          isSelected ? 'bg-primary-50' : 'hover:bg-slate-50',
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900">{inv.invoice_number}</p>
+                          <p className="truncate text-xs text-slate-500">
+                            {inv.customer_details?.company || inv.customer_details?.name || '-'} ·{' '}
+                            {calculateRelativeDueDate(inv.due_date, inv.status)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <span className="text-sm font-medium tabular-nums text-slate-900">
+                            {formatCurrency(inv.total_amount)}
+                          </span>
+                          <Badge variant={status.variant}>{status.label}</Badge>
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </Card>
+
+          {/* Detail */}
+          <Card className="lg:col-span-7">
+            {isLoading ? (
+              <div className="space-y-4 p-6">
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-40 w-full" />
+              </div>
+            ) : !selectedInvoice ? (
+              <div className="px-6 py-20 text-center text-sm text-slate-500">
+                Select an invoice to see its details.
+              </div>
+            ) : (
+              (() => {
+                const status = getInvoiceStatus(selectedInvoice.status, selectedInvoice.is_overdue)
+                const customer = selectedInvoice.customer_details
+                const items = selectedInvoice.items ?? []
+                return (
+                  <div>
+                    {/* Detail header */}
+                    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+                            {selectedInvoice.invoice_number}
+                          </h2>
+                          <Badge variant={status.variant}>{status.label}</Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {customer?.company || customer?.name || 'Unknown customer'}
+                          {customer?.company && customer?.name ? ` · ${customer.name}` : ''}
+                        </p>
+                        {customer?.email && <p className="text-xs text-slate-500">{customer.email}</p>}
+                      </div>
+                      <div className="flex items-center gap-1">
                         <button
-                          onClick={() => handleDownloadPDF(inv)}
-                          className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary-50 rounded-lg transition-colors"
+                          type="button"
+                          onClick={copyInvoiceLink}
+                          className="grid h-9 w-9 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                          aria-label="Copy invoice link"
+                          title="Copy invoice link"
+                        >
+                          <Link2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadPDF(selectedInvoice)}
+                          className="grid h-9 w-9 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                          aria-label="Download PDF"
                           title="Download PDF"
                         >
-                          <Download className="w-4 h-4" />
+                          <Download className="h-4 w-4" />
                         </button>
-                        {isStaff && (
+                      </div>
+                    </div>
+
+                    {/* Dates */}
+                    <dl className="grid grid-cols-2 gap-4 border-b border-slate-100 px-6 py-4 text-sm sm:grid-cols-3">
+                      <div>
+                        <dt className="text-xs text-slate-500">Issued</dt>
+                        <dd className="mt-0.5 text-slate-900">{formatDate(selectedInvoice.issue_date)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-slate-500">Due</dt>
+                        <dd className="mt-0.5 text-slate-900">
+                          {formatDate(selectedInvoice.due_date)}
+                          <span className="ml-1.5 text-xs text-slate-500">
+                            {calculateRelativeDueDate(selectedInvoice.due_date, selectedInvoice.status)}
+                          </span>
+                        </dd>
+                      </div>
+                      {selectedInvoice.billing_period_start && (
+                        <div>
+                          <dt className="text-xs text-slate-500">Billing period</dt>
+                          <dd className="mt-0.5 text-slate-900">
+                            {formatDate(selectedInvoice.billing_period_start)} – {formatDate(selectedInvoice.billing_period_end)}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+
+                    {/* Line items */}
+                    <div className="px-6 py-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Line items</h3>
+                        {isStaff && selectedInvoice.status !== 'PAID' && (
                           <button
-                            onClick={() => handleSendEmail(inv)}
-                            className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary-50 rounded-lg transition-colors"
-                            title="Send via Email"
+                            type="button"
+                            onClick={() => {
+                              setNewItemForm({
+                                product_name: 'Extended Support & SLA',
+                                quantity: 1,
+                                unit_price: '750.00',
+                                discount_amount: '0.00',
+                                tax_amount: '0.00',
+                              })
+                              setIsAddItemOpen(true)
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary-700"
                           >
-                            <Mail className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setDetailInv(inv)}
-                          className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                          title="View Invoice"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        {/* Staff payment & confirm actions */}
-                        {isStaff && inv.status === 'DRAFT' && (
-                          <Button size="sm" variant="outline" onClick={() => handleConfirm(inv)}>
-                            Confirm
-                          </Button>
-                        )}
-
-                        {isStaff && Number(inv.balance_due) > 0 && inv.status !== 'DRAFT' && inv.status !== 'CANCELLED' && (
-                          <Button size="sm" onClick={() => openPaymentModal(inv)}>
-                            <CreditCard className="w-3.5 h-3.5 mr-1" /> Pay
-                          </Button>
-                        )}
-
-                        {isStaff && inv.status === 'DRAFT' && (
-                          <button
-                            onClick={() => handleCancel(inv)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
-                            title="Cancel Invoice"
-                          >
-                            <XCircle className="w-4 h-4" />
+                            <Plus className="h-3.5 w-3.5" />
+                            Add item
                           </button>
                         )}
                       </div>
-                    </td>
+                      {items.length === 0 ? (
+                        <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">
+                          No line items on this invoice yet.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="bl-wrap-table w-full text-left text-[13px]">
+                            <thead className="border-b">
+                              <tr>
+                                <th className="pr-3 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Item</th>
+                                <th className="px-3 text-right py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Qty</th>
+                                <th className="px-3 text-right py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Unit price</th>
+                                <th className="pl-3 text-right py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {items.map((item, idx) => (
+                                <tr key={item.id || idx}>
+                                  <td className="py-2.5 pr-3 text-slate-900">
+                                    {item.product_name}
+                                    {item.variant_name && (
+                                      <span className="block text-xs text-slate-500">{item.variant_name}</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{item.quantity}</td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{formatCurrency(item.unit_price)}</td>
+                                  <td className="py-2.5 pl-3 text-right font-medium tabular-nums text-slate-900">
+                                    {formatCurrency(item.line_total)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Totals & action */}
+                    <div className="flex flex-col gap-5 border-t border-slate-100 px-6 py-5 sm:flex-row sm:items-end sm:justify-between">
+                      <dl className="grid grid-cols-3 gap-x-8 gap-y-1 text-sm">
+                        <dt className="text-xs text-slate-500">Subtotal</dt>
+                        <dt className="text-xs text-slate-500">Total</dt>
+                        <dt className="text-xs text-slate-500">Balance due</dt>
+                        <dd className="tabular-nums text-slate-700">{formatCurrency(selectedInvoice.subtotal)}</dd>
+                        <dd className="tabular-nums text-slate-700">{formatCurrency(selectedInvoice.total_amount)}</dd>
+                        <dd className="text-base font-semibold tabular-nums text-slate-900">
+                          {formatCurrency(selectedInvoice.balance_due)}
+                        </dd>
+                      </dl>
+
+                      {selectedInvoice.status === 'DRAFT' && isStaff ? (
+                        <Button onClick={() => handleConfirmInvoice(selectedInvoice)}>Confirm invoice</Button>
+                      ) : Number(selectedInvoice.balance_due) > 0 && isStaff ? (
+                        <Button onClick={() => openPaymentModal(selectedInvoice)}>Record payment</Button>
+                      ) : (
+                        <Button variant="outline" onClick={() => handleDownloadPDF(selectedInvoice)}>
+                          <Download className="mr-1.5 h-4 w-4" />
+                          {selectedInvoice.status === 'PAID' ? 'Download receipt' : 'Download PDF'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()
+            )}
+          </Card>
+        </div>
+      ) : (
+        /* Table view */
+        <Card className="overflow-hidden">
+          {isLoading ? (
+            <div className="space-y-2 p-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : invoices.length === 0 ? (
+            <p className="px-6 py-14 text-center text-sm text-slate-500">No invoices match these filters.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[13px]">
+                <thead className="border-b">
+                  <tr>
+                    <th className="px-5 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Invoice</th>
+                    <th className="px-5 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Customer</th>
+                    <th className="px-5 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Issued</th>
+                    <th className="px-5 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Due</th>
+                    <th className="px-5 text-right py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Total</th>
+                    <th className="px-5 text-right py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Balance</th>
+                    <th className="px-5 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap">Status</th>
+                    <th className="px-5 text-right py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 whitespace-nowrap"><span className="sr-only">Actions</span></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={page} count={count} onPageChange={setPage} />
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {invoices.map((inv) => {
+                    const status = getInvoiceStatus(inv.status, inv.is_overdue)
+                    return (
+                      <tr key={inv.id}>
+                        <td className="whitespace-nowrap px-5 py-3 font-medium text-slate-900">{inv.invoice_number}</td>
+                        <td className="px-5 py-3 text-slate-600">{inv.customer_details?.company || inv.customer_details?.name}</td>
+                        <td className="whitespace-nowrap px-5 py-3 text-slate-600">{formatDate(inv.issue_date)}</td>
+                        <td className="whitespace-nowrap px-5 py-3 text-slate-600">{formatDate(inv.due_date)}</td>
+                        <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums text-slate-900">{formatCurrency(inv.total_amount)}</td>
+                        <td className="whitespace-nowrap px-5 py-3 text-right font-medium tabular-nums text-slate-900">{formatCurrency(inv.balance_due)}</td>
+                        <td className="px-5 py-3">
+                          <Badge variant={status.variant}>{status.label}</Badge>
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadPDF(inv)}
+                            className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                            aria-label={`Download PDF for ${inv.invoice_number}`}
+                            title="Download PDF"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       )}
 
-      {/* Invoice Detail Modal */}
-      {detailInv && (
-        <Modal
-          isOpen={!!detailInv}
-          onClose={() => setDetailInv(null)}
-          title={`Invoice ${detailInv.invoice_number}`}
-          description={`Billed to: ${detailInv.customer_details?.company || detailInv.customer_details?.name}`}
-          maxWidth="lg"
-        >
-          <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200/80">
-              <div>
-                <p className="text-slate-500">Issue Date</p>
-                <p className="font-semibold text-slate-800">{formatDate(detailInv.issue_date)}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Due Date</p>
-                <p className={`font-semibold ${detailInv.is_overdue ? 'text-red-600 font-bold' : 'text-slate-800'}`}>
-                  {formatDate(detailInv.due_date)} {detailInv.is_overdue && '(OVERDUE)'}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Subtotal</p>
-                <p className="font-semibold text-slate-800">{formatCurrency(detailInv.subtotal)}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Taxes</p>
-                <p className="font-semibold text-slate-800">{formatCurrency(detailInv.tax_amount)}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Total Billed</p>
-                <p className="font-bold text-slate-900 text-sm">{formatCurrency(detailInv.total_amount)}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Remaining Balance</p>
-                <p className="font-black text-red-600 text-sm">{formatCurrency(detailInv.balance_due)}</p>
-              </div>
-            </div>
-
-            {((detailInv.applied_discounts && detailInv.applied_discounts.length > 0) || (detailInv.tax_summary && detailInv.tax_summary.length > 0)) && (
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
-                {detailInv.applied_discounts?.map((d) => (
-                  <div key={d.code} className="flex justify-between text-green-700">
-                    <span>Discount {d.code} — {d.name}</span><span>-{formatCurrency(d.amount)}</span>
-                  </div>
+      {/* Modal: Create Invoice */}
+      <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="New invoice" maxWidth="lg">
+        <form onSubmit={handleCreateInvoice} className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass} htmlFor="invoice-customer">Customer</label>
+              <select
+                id="invoice-customer"
+                value={formInv.customer}
+                onChange={(e) => setFormInv({ ...formInv, customer: e.target.value })}
+                required
+                className={fieldClass}
+              >
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.company ? `${c.company} (${c.name})` : c.name}
+                  </option>
                 ))}
-                {detailInv.tax_summary?.map((t) => (
-                  <div key={`${t.name}-${t.rate}`} className="flex justify-between text-slate-600">
-                    <span>{t.name} ({t.rate}%)</span><span>+{formatCurrency(t.amount)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Line items snapshot */}
-            <div className="space-y-2">
-              <h4 className="font-bold text-slate-900">Immutable Line Items Snapshot</h4>
-              {detailInv.items && detailInv.items.map((it) => (
-                <div key={it.id} className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between">
-                  <div>
-                    <span className="font-semibold text-slate-800">{it.product_name}</span>
-                    {it.variant_name && <span className="text-slate-400 ml-1">({it.variant_name})</span>}
-                    <span className="text-slate-400 ml-2">x {it.quantity}</span>
-                  </div>
-                  <span className="font-bold text-slate-900">{formatCurrency(it.line_total)}</span>
-                </div>
-              ))}
+              </select>
             </div>
-
-            {invHistory && (invHistory.payments.length > 0 || invHistory.events.length > 0) && (
-              <div className="space-y-2">
-                {invHistory.payments.length > 0 && (
-                  <div>
-                    <h4 className="font-bold text-slate-900 mb-1">Payments</h4>
-                    <ul className="space-y-1">
-                      {invHistory.payments.map((p) => (
-                        <li key={p.id} className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded-lg">
-                          <span className="font-mono font-semibold">{p.payment_number}</span>
-                          <span className="text-slate-500">{formatDate(p.payment_date)} · {p.method}</span>
-                          <span className={p.status === 'REVERSED' ? 'line-through text-slate-400' : 'font-bold text-green-700'}>{formatCurrency(p.amount)}</span>
-                          {p.status === 'REVERSED' && <Badge variant="danger">Reversed</Badge>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <div>
-                  <h4 className="font-bold text-slate-900 mb-1">Invoice History</h4>
-                  <ul className="space-y-1 max-h-28 overflow-y-auto">
-                    {invHistory.events.map((e) => (
-                      <li key={e.id} className="flex justify-between gap-3 p-2 bg-white border border-slate-200 rounded-lg">
-                        <span className="text-slate-700">{e.description}</span>
-                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatDateTime(e.created_at)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-              {isStaff && detailInv.status === 'DRAFT' && (
-                <Button size="sm" variant="outline" onClick={() => openEdit(detailInv)}>Edit Draft</Button>
-              )}
-              <Button size="sm" variant="outline" onClick={() => handleDownloadPDF(detailInv)}>
-                <Download className="w-3.5 h-3.5 mr-1" /> PDF Export
-              </Button>
-              {isStaff && Number(detailInv.balance_due) > 0 && (
-                <Button size="sm" onClick={() => { setDetailInv(null); openPaymentModal(detailInv); }}>
-                  <CreditCard className="w-3.5 h-3.5 mr-1" /> Record Payment
-                </Button>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Record Payment Modal */}
-      {selectedInvoiceForPayment && (
-        <Modal
-          isOpen={isPaymentModalOpen}
-          onClose={() => setIsPaymentModalOpen(false)}
-          title={`Record Payment for ${selectedInvoiceForPayment.invoice_number}`}
-          description={`Outstanding Balance: ${formatCurrency(selectedInvoiceForPayment.balance_due)}`}
-          maxWidth="md"
-        >
-          <form onSubmit={handleRecordPayment} className="space-y-4">
-            {payError && (
-              <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs">
-                {payError}
-              </div>
-            )}
-
             <Input
-              label="Payment Amount ($)"
-              type="number"
-              step="0.01"
-              required
-              value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
-              placeholder="e.g. 500.00"
-              helperText={`Maximum payable: ${formatCurrency(selectedInvoiceForPayment.balance_due)} (Overpayments prevented)`}
-            />
-
-            <Select
-              label="Payment Method"
-              required
-              value={payMethod}
-              onChange={(e: any) => setPayMethod(e.target.value)}
-              options={[
-                { label: 'Bank Transfer (Wire / NEFT)', value: 'BANK_TRANSFER' },
-                { label: 'UPI', value: 'UPI' },
-                { label: 'Card (Manual Terminal)', value: 'CARD' },
-                { label: 'Cash', value: 'CASH' },
-                { label: 'Other', value: 'OTHER' },
-              ]}
-            />
-
-            <Input
-              label="Transaction / Reference # (Optional)"
-              value={payRef}
-              onChange={(e) => setPayRef(e.target.value)}
-              placeholder="e.g. WIRE-889123 or UPI-TXN-12345"
-            />
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">Payment Notes</label>
-              <textarea
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
-                rows={2}
-                value={payNotes}
-                onChange={(e) => setPayNotes(e.target.value)}
-                placeholder="Bank receipt, branch notes..."
-              />
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setIsPaymentModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" isLoading={isRecordingPayment}>
-                Submit Payment
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* Manual Invoice Creation Modal */}
-      <Modal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        title="Create Manual Invoice"
-        description="Draft a custom or ad-hoc invoice."
-        maxWidth="lg"
-      >
-        <form onSubmit={handleCreateInvoice} className="space-y-4">
-          {formError && (
-            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs">
-              {formError}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Customer"
-              required
-              value={formInv.customer}
-              onChange={(e) => setFormInv({ ...formInv, customer: e.target.value })}
-              options={customers.map((c) => ({
-                label: `${c.company || c.name} (${c.reference})`,
-                value: c.id,
-              }))}
-            />
-            <Input
-              label="Due Date"
+              label="Due date"
               type="date"
-              required
               value={formInv.due_date}
               onChange={(e) => setFormInv({ ...formInv, due_date: e.target.value })}
+              required
             />
           </div>
 
-          <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-200/80">
-            <p className="text-xs font-bold text-slate-800">Invoice Line Item</p>
-            <Input
-              label="Item / Service Name"
-              required
-              value={formInv.product_name}
-              onChange={(e) => setFormInv({ ...formInv, product_name: e.target.value })}
-            />
-            <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-3 border-t border-slate-100 pt-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">First line item</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="sm:col-span-2">
+                <Input
+                  label="Description / Product"
+                  value={formInv.product_name}
+                  onChange={(e) => setFormInv({ ...formInv, product_name: e.target.value })}
+                  required
+                />
+              </div>
               <Input
-                label="Quantity"
-                type="number"
-                min="1"
-                required
-                value={formInv.quantity}
-                onChange={(e) => setFormInv({ ...formInv, quantity: parseInt(e.target.value) || 1 })}
-              />
-              <Input
-                label="Unit Price ($)"
+                label="Price ($)"
                 type="number"
                 step="0.01"
-                required
                 value={formInv.unit_price}
                 onChange={(e) => setFormInv({ ...formInv, unit_price: e.target.value })}
+                required
               />
             </div>
           </div>
 
-          <p className="text-[11px] text-slate-500 -mt-2">Taxes are added automatically from the configured tax rules. Invoices start as Draft until confirmed.</p>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Invoice Notes</label>
+          <div>
+            <label className={labelClass} htmlFor="invoice-notes">Notes</label>
             <textarea
-              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
-              rows={2}
+              id="invoice-notes"
               value={formInv.notes}
               onChange={(e) => setFormInv({ ...formInv, notes: e.target.value })}
-              placeholder="Payment instructions, bank info..."
+              rows={2}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 hover:border-slate-300 focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/15"
             />
           </div>
 
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <Button variant="outline" type="button" onClick={() => setIsCreateOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" isLoading={isSaving}>
-              Create Draft Invoice
+            <Button type="submit" isLoading={isSavingInvoice}>
+              Create invoice
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Edit Draft Invoice */}
-      {editInv && (
-        <Modal isOpen={!!editInv} onClose={() => setEditInv(null)} title={`Edit Draft ${editInv.number}`} description="Only draft invoices can be edited. Totals and taxes are recalculated by the system." maxWidth="md">
-          <form onSubmit={handleSaveEdit} className="space-y-4">
-            {editError && <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs">{editError}</div>}
-            <Input label="Due Date" type="date" required value={editInv.due_date} onChange={(e) => setEditInv({ ...editInv, due_date: e.target.value })} />
-            {editInv.single ? (
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-3"><Input label="Item / Service" required value={editInv.product_name} onChange={(e) => setEditInv({ ...editInv, product_name: e.target.value })} /></div>
-                <Input label="Quantity" type="number" min="1" required value={editInv.quantity} onChange={(e) => setEditInv({ ...editInv, quantity: parseInt(e.target.value) || 1 })} />
-                <Input label="Unit Price ($)" type="number" step="0.01" required value={editInv.unit_price} onChange={(e) => setEditInv({ ...editInv, unit_price: e.target.value })} />
-              </div>
-            ) : (
-              <p className="text-[11px] text-slate-500">This draft has several generated lines; only the due date and notes can be edited.</p>
-            )}
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">Notes</label>
-              <textarea className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm" rows={2} value={editInv.notes} onChange={(e) => setEditInv({ ...editInv, notes: e.target.value })} />
+      {/* Modal: Add Line Item */}
+      <Modal isOpen={isAddItemOpen} onClose={() => setIsAddItemOpen(false)} title={`Add item to ${selectedInvoice?.invoice_number ?? 'invoice'}`}>
+        <form onSubmit={handleAddItemToInvoice} className="space-y-4">
+          <Input
+            label="Item description"
+            value={newItemForm.product_name}
+            onChange={(e) => setNewItemForm({ ...newItemForm, product_name: e.target.value })}
+            placeholder="e.g. Design Consulting, Cloud Infrastructure"
+            required
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Quantity"
+              type="number"
+              min={1}
+              value={newItemForm.quantity}
+              onChange={(e) => setNewItemForm({ ...newItemForm, quantity: Number(e.target.value) })}
+              required
+            />
+            <Input
+              label="Unit price ($)"
+              type="number"
+              step="0.01"
+              value={newItemForm.unit_price}
+              onChange={(e) => setNewItemForm({ ...newItemForm, unit_price: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <Button variant="outline" type="button" onClick={() => setIsAddItemOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isSavingItem}>
+              Add to invoice
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Record Payment */}
+      <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} title={`Record payment for ${selectedInvoice?.invoice_number ?? 'invoice'}`}>
+        <form onSubmit={handleRecordPayment} className="space-y-4">
+          {payError && (
+            <div role="alert" className="flex items-start gap-2 rounded-xl bg-red-50 px-3.5 py-3 text-xs text-red-700">
+              <AlertCircle className="mt-px h-4 w-4 shrink-0" />
+              {payError}
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <Button type="button" variant="outline" onClick={() => setEditInv(null)}>Cancel</Button>
-              <Button type="submit" isLoading={isEditing}>Save Changes</Button>
-            </div>
-          </form>
-        </Modal>
-      )}
+          )}
+
+          <div>
+            <Input
+              label="Payment amount ($)"
+              type="number"
+              step="0.01"
+              max={Number(selectedInvoice?.balance_due || 0)}
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              required
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Remaining balance: {formatCurrency(selectedInvoice?.balance_due || 0)}
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass} htmlFor="payment-method">Payment method</label>
+            <select
+              id="payment-method"
+              value={payMethod}
+              onChange={(e) => setPayMethod(e.target.value as PaymentMethodType)}
+              className={fieldClass}
+            >
+              <option value="BANK_TRANSFER">Bank Wire / ACH</option>
+              <option value="CARD">Credit Card (Stripe)</option>
+              <option value="UPI">UPI Instant</option>
+              <option value="CASH">Cash Settlement</option>
+              <option value="OTHER">PayPal / Digital Wallet</option>
+            </select>
+          </div>
+
+          <Input
+            label="Transaction reference / Cheque #"
+            value={payRef}
+            onChange={(e) => setPayRef(e.target.value)}
+            placeholder="e.g. TXN-948274 or STRIPE_CH_9281"
+          />
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <Button variant="outline" type="button" onClick={() => setIsPaymentModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isRecordingPayment}>
+              Record payment
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
-

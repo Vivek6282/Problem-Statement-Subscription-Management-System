@@ -1,11 +1,10 @@
 import React, { useState } from 'react'
-import { User, KeyRound, Shield, CheckCircle2, AlertCircle } from 'lucide-react'
+import { AlertCircle, Check } from 'lucide-react'
 import { useAuth } from './AuthContext'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Badge } from '@/components/ui/Badge'
 import { api } from '@/lib/api'
+import '@/styles/brightloop.css'
 
 export const ProfilePage: React.FC = () => {
   const { user, refetchUser } = useAuth()
@@ -15,6 +14,7 @@ export const ProfilePage: React.FC = () => {
 
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false)
   const [profileSuccess, setProfileSuccess] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
 
   // Password change state
   const [oldPassword, setOldPassword] = useState('')
@@ -28,6 +28,7 @@ export const ProfilePage: React.FC = () => {
     e.preventDefault()
     setIsUpdatingProfile(true)
     setProfileSuccess(false)
+    setProfileError(null)
     try {
       await api.patch('/auth/me/', {
         first_name: firstName,
@@ -37,6 +38,8 @@ export const ProfilePage: React.FC = () => {
       await refetchUser()
       setProfileSuccess(true)
       setTimeout(() => setProfileSuccess(false), 4000)
+    } catch (err: any) {
+      setProfileError(err?.response?.data?.detail || 'We couldn’t save your details. Please try again.')
     } finally {
       setIsUpdatingProfile(false)
     }
@@ -76,97 +79,130 @@ export const ProfilePage: React.FC = () => {
     }
   }
 
+  const role = user?.role ? user.role.charAt(0) + user.role.slice(1).toLowerCase() : ''
+  const name = user?.first_name || user?.full_name || 'there'
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Account Profile & Security</h1>
-        <p className="text-xs text-slate-500 mt-1">Manage personal contact information and authentication settings</p>
+    <div className="bl-portal">
+      <div className="bl-portal-heading">
+        <div>
+          <span className="bl-eyebrow">Account settings</span>
+          <h1>
+            Your profile, {name}
+            <span>.</span>
+          </h1>
+          <p>Keep your details and password up to date. Changes apply right away.</p>
+        </div>
+        {role && <span className="bl-section-count">{role} account</span>}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Profile Details */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <User className="w-5 h-5 text-primary" />
-              <CardTitle>Personal Information</CardTitle>
-            </div>
-            <Badge variant="neutral">{user?.role}</Badge>
-          </CardHeader>
-          <CardContent>
-            {profileSuccess && (
-              <div className="mb-4 p-2.5 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-xs text-green-700">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                Profile updated successfully.
-              </div>
-            )}
-            <form onSubmit={handleUpdateProfile} className="space-y-4">
-              <Input label="Email Address" type="email" value={user?.email || ''} disabled helperText="Email cannot be altered directly." />
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-                <Input label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-              </div>
-              <Input label="Phone Number" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 000-0000" />
-              <Button type="submit" isLoading={isUpdatingProfile} className="w-full">
-                Save Profile Changes
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+      <div className="bl-settings">
+        {/* 01 Personal details */}
+        <section className="bl-settings-row" aria-labelledby="details-heading">
+          <div className="bl-settings-intro">
+            <span className="bl-eyebrow">01 / Personal details</span>
+            <h2 id="details-heading">About you.</h2>
+            <p>How your name and contact number appear across Brightloop.</p>
+          </div>
 
-        {/* Password Change */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-primary" />
-              <CardTitle>Change Password</CardTitle>
+          <form onSubmit={handleUpdateProfile} className="bl-settings-fields">
+            <div className="bl-readonly">
+              <span>Email address</span>
+              <strong>{user?.email}</strong>
+              <small>Your sign-in email can’t be changed here.</small>
             </div>
-            <Shield className="w-4 h-4 text-slate-400" />
-          </CardHeader>
-          <CardContent>
-            {passSuccess && (
-              <div className="mb-4 p-2.5 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-xs text-green-700">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                Password changed successfully!
+            <div className="bl-field-row">
+              <Input label="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" />
+              <Input label="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" />
+            </div>
+            <Input
+              label="Phone number"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 (555) 000-0000"
+              autoComplete="tel"
+            />
+
+            {profileError && (
+              <div className="bl-notice bl-notice-error" role="alert">
+                <AlertCircle size={18} />
+                <span>{profileError}</span>
               </div>
             )}
-            {passError && (
-              <div className="mb-4 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-xs text-red-700">
-                <AlertCircle className="w-4 h-4 text-red-500" />
-                {passError}
-              </div>
-            )}
-            <form onSubmit={handleChangePassword} className="space-y-3.5">
+            <div className="bl-settings-actions">
+              <Button type="submit" isLoading={isUpdatingProfile}>
+                Save changes
+              </Button>
+              {profileSuccess && (
+                <span className="bl-saved" role="status">
+                  <Check size={15} /> Saved
+                </span>
+              )}
+            </div>
+          </form>
+        </section>
+
+        {/* 02 Security */}
+        <section className="bl-settings-row" aria-labelledby="security-heading">
+          <div className="bl-settings-intro">
+            <span className="bl-eyebrow">02 / Security</span>
+            <h2 id="security-heading">Your password.</h2>
+            <p>Use at least 9 characters, with uppercase and lowercase letters and a special character.</p>
+          </div>
+
+          <form onSubmit={handleChangePassword} className="bl-settings-fields">
+            <Input
+              label="Current password"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+            />
+            <div className="bl-field-row">
               <Input
-                label="Current Password"
+                label="New password"
                 type="password"
                 required
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-              />
-              <Input
-                label="New Password"
-                type="password"
-                required
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min 9 chars, uppercase, lowercase, special"
               />
               <Input
-                label="Confirm New Password"
+                label="Confirm new password"
                 type="password"
                 required
+                autoComplete="new-password"
                 value={newPasswordConfirm}
                 onChange={(e) => setNewPasswordConfirm(e.target.value)}
               />
-              <Button type="submit" variant="secondary" isLoading={isChangingPass} className="w-full mt-2">
-                Update Password
+            </div>
+
+            {passError && (
+              <div className="bl-notice bl-notice-error" role="alert">
+                <AlertCircle size={18} />
+                <span>{passError}</span>
+              </div>
+            )}
+            <div className="bl-settings-actions">
+              <Button type="submit" isLoading={isChangingPass}>
+                Update password
               </Button>
-            </form>
-          </CardContent>
-        </Card>
+              {passSuccess && (
+                <span className="bl-saved" role="status">
+                  <Check size={15} /> Password updated
+                </span>
+              )}
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div className="bl-portal-endnote">
+        <span>Everything in its place.</span>
+        <p>Keep your contact details current for a smoother billing experience.</p>
       </div>
     </div>
   )
 }
-
