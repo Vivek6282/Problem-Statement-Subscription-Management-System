@@ -5,11 +5,13 @@ import { AuthProvider } from '@/features/auth/AuthContext'
 
 // Layouts
 import { AppLayout } from '@/components/layout/AppLayout'
+import { RoleRoute } from '@/components/layout/RoleRoute'
 
 // Pages
 import { LoginPage } from '@/features/auth/LoginPage'
 import { RegisterPage } from '@/features/auth/RegisterPage'
 import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
+import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { ProfilePage } from '@/features/auth/ProfilePage'
 
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
@@ -24,9 +26,10 @@ import { TaxesPage } from '@/features/taxes/TaxesPage'
 import { DiscountsPage } from '@/features/discounts/DiscountsPage'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { AuditPage } from '@/features/audit/AuditPage'
-import { StaffPage } from '@/features/staff/StaffPage'
 import { CustomerPortalPage } from '@/features/portal/CustomerPortalPage'
 import { LandingPage } from '@/features/landing/LandingPage'
+import { TeamPage } from '@/features/team/TeamPage'
+import { AccessDeniedPage } from '@/features/auth/AccessDeniedPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,24 +51,39 @@ export const App: React.FC = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* Protected App Routes */}
             <Route element={<AppLayout />}>
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/customers" element={<CustomersPage />} />
-              <Route path="/products" element={<ProductsPage />} />
-              <Route path="/plans" element={<PlansPage />} />
+              {/* Admin & Staff only */}
+              <Route element={<RoleRoute allow="staff" />}>
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/customers" element={<CustomersPage />} />
+                <Route path="/products" element={<ProductsPage />} />
+                <Route path="/plans" element={<PlansPage />} />
+                <Route path="/taxes" element={<TaxesPage />} />
+                <Route path="/discounts" element={<DiscountsPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/audit" element={<AuditPage />} />
+              </Route>
+
+              {/* Admin only */}
+              <Route element={<RoleRoute allow="admin" />}>
+                <Route path="/team" element={<TeamPage />} />
+              </Route>
+
+              {/* Customer self-service portal */}
+              <Route element={<RoleRoute allow="customer" />}>
+                <Route path="/portal" element={<CustomerPortalPage />} />
+              </Route>
+
+              {/* Everyone signed in (data is scoped by the API per role) */}
               <Route path="/subscriptions" element={<SubscriptionsPage />} />
               <Route path="/quotations" element={<QuotationsPage />} />
               <Route path="/invoices" element={<InvoicesPage />} />
               <Route path="/payments" element={<PaymentsPage />} />
-              <Route path="/taxes" element={<TaxesPage />} />
-              <Route path="/discounts" element={<DiscountsPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/audit" element={<AuditPage />} />
-              <Route path="/staff" element={<StaffPage />} />
               <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/portal" element={<CustomerPortalPage />} />
+              <Route path="/access-denied" element={<AccessDeniedPage />} />
             </Route>
 
             {/* Fallback */}
@@ -76,4 +94,5 @@ export const App: React.FC = () => {
     </QueryClientProvider>
   )
 }
+
 export default App

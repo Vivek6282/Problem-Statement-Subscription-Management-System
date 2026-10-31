@@ -16,21 +16,21 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props
 }) => {
-  const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed select-none'
+  const baseStyles = 'inline-flex items-center justify-center font-medium rounded-full whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed select-none'
 
   const variants = {
-    primary: 'bg-primary text-white hover:bg-primary-700 focus:ring-primary-500 shadow-sm',
-    secondary: 'bg-navy-900 text-white hover:bg-navy-800 focus:ring-navy-900 shadow-sm',
-    outline: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:ring-primary-500',
-    danger: 'bg-danger text-white hover:bg-red-700 focus:ring-red-500 shadow-sm',
-    success: 'bg-success text-white hover:bg-green-700 focus:ring-green-500 shadow-sm',
-    ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:ring-slate-300',
+    primary: 'bg-primary text-white hover:bg-primary-700 focus-visible:ring-primary-500',
+    secondary: 'bg-navy-800 text-white hover:bg-navy-900 focus-visible:ring-navy-800',
+    outline: 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:ring-primary-500',
+    danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500',
+    success: 'bg-green-600 text-white hover:bg-green-700 focus-visible:ring-green-500',
+    ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-slate-300',
   }
 
   const sizes = {
-    sm: 'px-2.5 py-1.5 text-xs',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-6 py-2.5 text-base',
+    sm: 'h-8 px-3.5 text-xs',
+    md: 'h-10 px-5 text-sm',
+    lg: 'h-11 px-6 text-sm',
   }
 
   return (

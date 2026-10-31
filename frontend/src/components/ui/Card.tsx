@@ -8,7 +8,7 @@ export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
 }) => (
   <div
     className={cn(
-      'bg-surface border border-slate-200/80 rounded-xl shadow-sm transition-all',
+      'bg-surface border border-slate-200 rounded-2xl',
       className
     )}
     {...props}
@@ -22,7 +22,7 @@ export const CardHeader: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
   children,
   ...props
 }) => (
-  <div className={cn('p-5 border-b border-slate-100 flex items-center justify-between', className)} {...props}>
+  <div className={cn('px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3', className)} {...props}>
     {children}
   </div>
 )
@@ -32,7 +32,7 @@ export const CardTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({
   children,
   ...props
 }) => (
-  <h3 className={cn('font-semibold text-slate-900 text-base tracking-tight', className)} {...props}>
+  <h3 className={cn('font-semibold text-slate-900 text-[15px] tracking-tight', className)} {...props}>
     {children}
   </h3>
 )
@@ -62,7 +62,7 @@ export const CardFooter: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
   children,
   ...props
 }) => (
-  <div className={cn('p-4 bg-slate-50/60 border-t border-slate-100 rounded-b-xl flex items-center justify-end gap-3', className)} {...props}>
+  <div className={cn('px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-3', className)} {...props}>
     {children}
   </div>
 )

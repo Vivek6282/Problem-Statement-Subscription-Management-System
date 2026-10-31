@@ -1,37 +1,25 @@
 import React, { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
-  Users,
-  Repeat,
-  DollarSign,
-  TrendingUp,
-  AlertTriangle,
-  Calendar,
+  AlertCircle,
+  ArrowRight,
+  ArrowUpRight,
+  CalendarClock,
+  CircleDollarSign,
   CreditCard,
   FileText,
-  ArrowUpRight,
   RefreshCw,
-  Plus,
-  Clock,
-  Timer,
-  Lock,
-  Download,
-  Link2,
-  Waves,
-  Sparkles,
-  ExternalLink,
-  ChevronRight,
-  ListFilter,
-  CheckCircle2,
+  Repeat,
+  Wallet,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   PieChart,
   Pie,
   Cell,
@@ -39,52 +27,81 @@ import {
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { DashboardMetrics } from '@/types'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Modal } from '@/components/ui/Modal'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { MiniDeskGraphic } from '../invoices/components/MiniDeskGraphic'
-import { MiniBarGraphic } from '../invoices/components/MiniBarGraphic'
-import { MiniSplineGraphic } from '../invoices/components/MiniSplineGraphic'
-import { MiniPayoutGraphic } from '../invoices/components/MiniPayoutGraphic'
+import { useAuth } from '@/features/auth/AuthContext'
+import { StatusText } from '@/components/ui/StatusText'
+import '@/styles/brightloop.css'
 
-const FINNOVA_COLORS = ['#4F46E5', '#6366F1', '#818CF8', '#10B981', '#F43F5E']
+const STATUS_COLORS: Record<string, string> = {
+  Active: '#305D42',
+  Confirmed: '#7D9E72',
+  Paused: '#CC9D45',
+  Draft: '#CDD5C8',
+  Closed: '#8A9585',
+}
 
-interface DrillDownRecord {
-  id: number
-  reference: string
-  customer_name: string
-  amount: string
-  date: string
-  status: string
-  details: string
+const CHART_TOOLTIP = {
+  backgroundColor: '#FFFFFF',
+  border: '1px solid #DFE4DC',
+  borderRadius: 12,
+  boxShadow: '0 8px 24px -12px rgba(31, 51, 39, 0.25)',
+  color: '#1F3327',
+  fontSize: 12,
+}
+
+const humanize = (value?: string) =>
+  value ? value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ') : '—'
+
+const daysOverdue = (dueDate: string) => {
+  const due = new Date(dueDate)
+  const today = new Date()
+  due.setHours(0, 0, 0, 0)
+  today.setHours(0, 0, 0, 0)
+  return Math.max(0, Math.round((today.getTime() - due.getTime()) / 86_400_000))
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+function SectionHeading({
+  index,
+  eyebrow,
+  title,
+  id,
+  aside,
+}: {
+  index: string
+  eyebrow: string
+  title: string
+  id: string
+  aside?: React.ReactNode
+}) {
+  return (
+    <div className="bl-section-heading">
+      <div>
+        <span className="bl-eyebrow">
+          {index} / {eyebrow}
+        </span>
+        <h2 id={id}>{title}</h2>
+      </div>
+      {aside}
+    </div>
+  )
 }
 
 export const DashboardPage: React.FC = () => {
-  const navigate = useNavigate()
+  const { user } = useAuth()
   const [data, setData] = useState<DashboardMetrics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
-  const [toastNotice, setToastNotice] = useState<string | null>(null)
-
-  // Drilldown modal state
-  const [drillDownMetric, setDrillDownMetric] = useState<string | null>(null)
-  const [drillDownTitle, setDrillDownTitle] = useState<string>('')
-  const [drillDownTargetUrl, setDrillDownTargetUrl] = useState<string>('')
-  const [drillDownRecords, setDrillDownRecords] = useState<DrillDownRecord[]>([])
-  const [isDrillDownLoading, setIsDrillDownLoading] = useState(false)
-  const [isExportingCSV, setIsExportingCSV] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   const fetchDashboardData = async () => {
     setIsLoading(true)
+    setLoadError(false)
     try {
       const res = await api.get<DashboardMetrics>('/reports/dashboard/')
       setData(res.data)
-      if (res.data.recent_invoices?.length > 0) {
-        setSelectedInvoiceId(res.data.recent_invoices[0].id)
-      }
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err)
+      setLoadError(true)
     } finally {
       setIsLoading(false)
     }
@@ -94,618 +111,424 @@ export const DashboardPage: React.FC = () => {
     fetchDashboardData()
   }, [])
 
-  const handleDownloadPDF = async (id: number, invNumber: string) => {
-    try {
-      const res = await api.get(`/invoices/${id}/pdf/`, { responseType: 'blob' })
-      const blob = new Blob([res.data], { type: 'application/pdf' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `${invNumber}.pdf`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      setToastNotice(`Downloaded PDF for ${invNumber}`)
-      setTimeout(() => setToastNotice(null), 4000)
-    } catch (err) {
-      console.error(err)
-    }
-  }
+  const name = user?.first_name || user?.full_name || 'there'
 
-  const openDrillDown = async (metricKey: string, title: string, targetUrl: string) => {
-    setDrillDownMetric(metricKey)
-    setDrillDownTitle(title)
-    setDrillDownTargetUrl(targetUrl)
-    setIsDrillDownLoading(true)
-    try {
-      const res = await api.get(`/reports/drilldown/?metric=${metricKey}&page_size=10`)
-      setDrillDownRecords(res.data.results || [])
-    } catch (err) {
-      console.error('Failed to load drilldown:', err)
-    } finally {
-      setIsDrillDownLoading(false)
-    }
-  }
-
-  const handleExportDrillDownCSV = async () => {
-    if (!drillDownMetric) return
-    setIsExportingCSV(true)
-    try {
-      const res = await api.get(`/reports/export/?type=drilldown&metric=${drillDownMetric}`, { responseType: 'blob' })
-      const blob = new Blob([res.data], { type: 'text/csv' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `brightloop_${drillDownMetric}_drilldown.csv`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      setToastNotice(`Exported drilldown CSV for ${drillDownTitle}`)
-      setTimeout(() => setToastNotice(null), 4000)
-    } catch (err) {
-      console.error('Failed to export drilldown CSV:', err)
-    } finally {
-      setIsExportingCSV(false)
-    }
-  }
-
-  if (isLoading || !data) {
+  if (!data && isLoading) {
     return (
-      <div className="space-y-6 max-w-7xl mx-auto pb-12">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48 rounded-xl" />
-          <Skeleton className="h-9 w-32 rounded-xl" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-44 w-full rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Skeleton className="h-80 lg:col-span-2 rounded-3xl" />
-          <Skeleton className="h-80 rounded-3xl" />
+      <div className="bl-portal-loading" role="status">
+        <span className="bl-eyebrow">Operations overview</span>
+        <h1>Getting things in order.</h1>
+        <p>Loading revenue, receivables and recent activity…</p>
+        <div className="bl-loading-line" />
+        <div className="bl-loading-line" />
+        <div className="bl-loading-line" />
+      </div>
+    )
+  }
+
+  const heading = (
+    <div className="bl-portal-heading">
+      <div>
+        <span className="bl-eyebrow">Operations overview</span>
+        <h1>
+          Hello, {name}
+          <span>.</span>
+        </h1>
+        <p>Recurring revenue and receivables, straight from your billing records.</p>
+      </div>
+      <div className="bl-heading-actions">
+        <button
+          type="button"
+          className="bl-refresh"
+          onClick={fetchDashboardData}
+          disabled={isLoading}
+          aria-label="Refresh dashboard"
+        >
+          <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
+          {isLoading ? 'Refreshing…' : 'Refresh'}
+        </button>
+        <Link to="/invoices" className="bl-refresh is-primary">
+          Open invoices
+          <ArrowRight size={15} />
+        </Link>
+      </div>
+    </div>
+  )
+
+  if (!data) {
+    return (
+      <div className="bl-portal">
+        {heading}
+        <div className="bl-notice bl-notice-error" role="alert">
+          <AlertCircle size={18} />
+          <span>We couldn’t load the dashboard. Check that the API is running, then refresh.</span>
         </div>
       </div>
     )
   }
 
-  const { metrics, revenue_trend, subscription_distribution, recent_invoices } = data
-
-  const overdueVal = Number(metrics.overdue_amount) > 0 ? Number(metrics.overdue_amount) : 0
-  const dueNextMonthVal = Number(metrics.due_next_month) > 0 ? Number(metrics.due_next_month) : 0
-  const instantPayoutVal = Number(metrics.instant_payout_available) > 0 ? Number(metrics.instant_payout_available) : 0
-  const avgDaysVal = metrics.avg_days_to_pay || 16
-
-  const selectedInvoice = recent_invoices.find((i) => i.id === selectedInvoiceId) || recent_invoices[0]
+  const {
+    metrics,
+    revenue_trend,
+    subscription_distribution,
+    recent_subscriptions,
+    recent_invoices,
+    recent_payments,
+    overdue_invoices,
+  } = data
+  const totalSubscriptions = subscription_distribution.reduce((sum, s) => sum + s.count, 0)
+  const overdueAmount = metrics.overdue_amount ?? 0
 
   return (
-    <div className="space-y-7 max-w-7xl mx-auto pb-16 font-sans">
-      {/* Toast Alert */}
-      {toastNotice && (
-        <div className="fixed top-24 right-8 z-50 px-5 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl border border-slate-700 text-xs font-semibold flex items-center gap-3 animate-in fade-in">
-          <span>{toastNotice}</span>
-          <button onClick={() => setToastNotice(null)} className="ml-2 text-slate-400 hover:text-white">✕</button>
+    <div className="bl-portal">
+      {heading}
+
+      {loadError && (
+        <div className="bl-notice bl-notice-error" role="alert">
+          <AlertCircle size={18} />
+          <span>We couldn’t refresh the dashboard. Showing the last figures that loaded.</span>
         </div>
       )}
 
-      {/* Finnova Page Title Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section className="bl-overview-stats is-four" aria-label="Key figures">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight leading-none">Financial Overview</h1>
-          <p className="text-xs text-slate-400 font-medium mt-1">Live database-backed financial metrics and billing health.</p>
+          <span>
+            <Repeat size={16} /> Monthly recurring revenue
+          </span>
+          <strong>{formatCurrency(metrics.mrr)}</strong>
+          <small>{formatCurrency(metrics.arr)} annual run rate</small>
         </div>
-        <div className="flex items-center gap-2.5">
-          <Button variant="outline" size="sm" onClick={fetchDashboardData} className="rounded-full px-4 shadow-sm">
-            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-            Refresh
-          </Button>
-          <Link to="/invoices">
-            <button className="px-5 py-2 rounded-full bg-[#4F46E5] hover:bg-[#4338CA] text-white text-xs font-bold transition-all shadow-sm shadow-indigo-500/25 flex items-center gap-1.5 active:scale-95">
-              <Plus className="w-3.5 h-3.5" />
-              <span>Manage Invoices</span>
-            </button>
-          </Link>
+        <div>
+          <span>
+            <CalendarClock size={16} /> Active subscriptions
+          </span>
+          <strong>{metrics.active_subscriptions}</strong>
+          <small>
+            {plural(metrics.total_customers, 'customer')} ·{' '}
+            {metrics.upcoming_renewals_count} renewing this week
+          </small>
         </div>
-      </div>
+        <div>
+          <span>
+            <Wallet size={16} /> Outstanding balance
+          </span>
+          <strong className={metrics.overdue_count > 0 ? 'bl-amount-due' : ''}>
+            {formatCurrency(metrics.outstanding_balance)}
+          </strong>
+          <small>
+            {metrics.overdue_count > 0
+              ? `${formatCurrency(overdueAmount)} overdue across ${plural(metrics.overdue_count, 'invoice')}`
+              : 'Nothing overdue'}
+          </small>
+        </div>
+        <div>
+          <span>
+            <CircleDollarSign size={16} /> Collected this month
+          </span>
+          <strong>{formatCurrency(metrics.revenue_this_month)}</strong>
+          <small>{formatCurrency(metrics.due_next_month ?? 0)} due in the next 30 days</small>
+        </div>
+      </section>
 
-      {/* 4 FINNOVA Style Metric Cards (Clickable Deep-links + Drilldown) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Overdue Invoices */}
-        <div
-          onClick={() => navigate('/invoices?status=OVERDUE')}
-          className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[195px] cursor-pointer group hover:border-rose-300"
-        >
+      <nav className="bl-section-links" aria-label="Jump to section">
+        <a href="#revenue">
+          Revenue <ArrowRight size={14} />
+        </a>
+        <a href="#attention">
+          Needs attention <ArrowRight size={14} />
+        </a>
+        <a href="#invoices">
+          Invoices <ArrowRight size={14} />
+        </a>
+        <a href="#activity">
+          Activity <ArrowRight size={14} />
+        </a>
+      </nav>
+
+      {/* 01 Revenue */}
+      <section className="bl-portal-section" id="revenue" aria-labelledby="revenue-heading">
+        <SectionHeading
+          index="01"
+          eyebrow="Revenue"
+          title="Billed and collected."
+          id="revenue-heading"
+          aside={
+            <div className="bl-chart-legend" aria-hidden="true">
+              <span>
+                <i style={{ background: '#305D42' }} /> Billed
+              </span>
+              <span>
+                <i style={{ background: '#A8C09B' }} /> Collected
+              </span>
+            </div>
+          }
+        />
+        <div className="bl-chart-grid">
+          <div className="h-72" role="img" aria-label="Billed versus collected over the last six months">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={revenue_trend} margin={{ top: 8, right: 0, left: 0, bottom: 0 }} barGap={4}>
+                <CartesianGrid vertical={false} stroke="#E8ECE3" />
+                <XAxis dataKey="month" stroke="#8A9585" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis
+                  stroke="#8A9585"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  width={52}
+                  tickFormatter={(v) => `$${Number(v).toLocaleString('en-US', { notation: 'compact' })}`}
+                />
+                <Tooltip
+                  cursor={{ fill: '#F2F5EE' }}
+                  formatter={(val: any, label: any) => [formatCurrency(Number(val)), label]}
+                  contentStyle={CHART_TOOLTIP}
+                />
+                <Bar dataKey="billed" name="Billed" fill="#305D42" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="collected" name="Collected" fill="#A8C09B" radius={[4, 4, 0, 0]} maxBarSize={26} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
           <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 group-hover:text-rose-600 transition-colors">
-                Overdue Invoices
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openDrillDown('overdue_invoices', 'Overdue Invoices Drilldown', '/invoices?status=OVERDUE')
-                  }}
-                  className="px-2 py-0.5 rounded text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold transition-colors"
-                  title="View top overdue invoices breakdown"
-                >
-                  Breakdown
-                </button>
-                <div className="w-6 h-6 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center">
-                  <Clock className="w-3.5 h-3.5" />
-                </div>
-              </div>
-            </div>
-            <h3 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
-              {formatCurrency(overdueVal)}
-            </h3>
-            <p className="text-[11px] font-semibold text-rose-600 mt-0.5 flex items-center gap-1">
-              {metrics.overdue_count} invoice{metrics.overdue_count === 1 ? '' : 's'} past due window
+            <p className="text-[13px] text-[#5f6b62]">
+              Subscriptions by status · <span className="text-[#1f3327]">{totalSubscriptions} total</span>
             </p>
-          </div>
-          <div className="mt-1">
-            <MiniDeskGraphic />
-          </div>
-        </div>
-
-        {/* Card 2: Due within next month (Outstanding) */}
-        <div
-          onClick={() => navigate('/invoices?status=UNPAID')}
-          className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[195px] cursor-pointer group hover:border-indigo-300"
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">
-                Due within next month
-              </span>
-              <div className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                <Calendar className="w-3.5 h-3.5" />
-              </div>
-            </div>
-            <h3 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
-              {formatCurrency(dueNextMonthVal)}
-            </h3>
-            <p className="text-[11px] font-semibold text-indigo-600 mt-0.5 flex items-center gap-1">
-              Total Outstanding: {formatCurrency(metrics.outstanding_balance)}
-            </p>
-          </div>
-          <div className="mt-1">
-            <MiniBarGraphic />
-          </div>
-        </div>
-
-        {/* Card 3: Average time to get paid */}
-        <div
-          onClick={() => navigate('/invoices')}
-          className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[195px] cursor-pointer group hover:border-teal-300"
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 group-hover:text-teal-600 transition-colors">
-                Average time to get paid
-              </span>
-              <div className="w-6 h-6 rounded-full bg-teal-50 text-teal-600 flex items-center justify-center">
-                <Timer className="w-3.5 h-3.5" />
-              </div>
-            </div>
-            <h3 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
-              {avgDaysVal} days
-            </h3>
-            <p className="text-[11px] font-semibold text-teal-600 mt-0.5 flex items-center gap-1">
-              Settlement velocity benchmark
-            </p>
-          </div>
-          <div className="mt-1">
-            <MiniSplineGraphic />
-          </div>
-        </div>
-
-        {/* Card 4: Available for Instant Payout / Collected Revenue */}
-        <div
-          onClick={() => navigate('/payments')}
-          className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[195px] cursor-pointer group hover:border-emerald-300"
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 group-hover:text-emerald-600 transition-colors">
-                Collected Revenue
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openDrillDown('revenue_collected', 'Collected Revenue Transactions', '/payments')
-                  }}
-                  className="px-2 py-0.5 rounded text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold transition-colors"
-                  title="View collected payments breakdown"
-                >
-                  Breakdown
-                </button>
-                <Lock className="w-3.5 h-3.5 text-emerald-600" />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2 mt-1">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-                {formatCurrency(metrics.revenue_collected || instantPayoutVal)}
-              </h3>
-            </div>
-            <p className="text-[11px] font-semibold text-emerald-600 mt-0.5">
-              This month: {formatCurrency(metrics.revenue_this_month)}
-            </p>
-          </div>
-          <div className="mt-1">
-            <MiniPayoutGraphic onPayout={() => navigate('/payments')} />
-          </div>
-        </div>
-      </div>
-
-      {/* Secondary SaaS Metrics Strip (Deep-linked cards) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-        {/* Normalized MRR */}
-        <div
-          onClick={() => navigate('/subscriptions?status=ACTIVE')}
-          className="p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-indigo-300"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-600 group-hover:text-indigo-600 transition-colors">
-              Normalized MRR
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openDrillDown('mrr', 'Monthly Recurring Revenue (MRR) Breakdown', '/subscriptions?status=ACTIVE')
-                }}
-                className="px-1.5 py-0.5 rounded text-[9px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold"
-              >
-                Breakdown
-              </button>
-              <DollarSign className="w-4 h-4 text-indigo-600" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(metrics.mrr)}</div>
-          <span className="text-[10px] text-slate-400 font-medium">SQL aggregated monthly run rate</span>
-        </div>
-
-        {/* ARR */}
-        <div
-          onClick={() => navigate('/subscriptions?status=ACTIVE')}
-          className="p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-blue-300"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-600 group-hover:text-blue-600 transition-colors">
-              Annual Run Rate (ARR)
-            </span>
-            <TrendingUp className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(metrics.arr)}</div>
-          <span className="text-[10px] text-slate-400 font-medium">ARR = Normalized MRR × 12</span>
-        </div>
-
-        {/* Active Subscriptions */}
-        <div
-          onClick={() => navigate('/subscriptions?status=ACTIVE')}
-          className="p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-emerald-300"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-600 group-hover:text-emerald-600 transition-colors">
-              Active Subscriptions
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openDrillDown('active_subscriptions', 'Active Subscriptions Breakdown', '/subscriptions?status=ACTIVE')
-                }}
-                className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold"
-              >
-                Breakdown
-              </button>
-              <Repeat className="w-4 h-4 text-emerald-600" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 mt-1">{metrics.active_subscriptions}</div>
-          <span className="text-[10px] text-slate-400 font-medium">Active recurring contracts</span>
-        </div>
-
-        {/* Churn Rate & Customers */}
-        <div
-          onClick={() => navigate('/reports')}
-          className="p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-slate-400"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-600 group-hover:text-slate-900 transition-colors">
-              Churn Rate & Customers
-            </span>
-            <Users className="w-4 h-4 text-slate-600" />
-          </div>
-          <div className="text-xl font-black text-slate-900 mt-1">{metrics.churn_rate || '0.0%'}</div>
-          <span className="text-[10px] text-slate-400 font-medium">{metrics.total_customers} active enterprise organizations</span>
-        </div>
-      </div>
-
-      {/* FINNOVA Signature Interactive Master-Detail Workbench */}
-      {recent_invoices.length > 0 && (
-        <div className="bg-[#12131F] text-white rounded-[32px] p-5 sm:p-7 border border-slate-800 shadow-2xl space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-bold text-white tracking-tight">Active Invoices Workbench</h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 text-[10px] font-bold">
-                Live Postgres Queue
-              </span>
-            </div>
-            <Link to="/invoices" className="text-xs font-bold text-indigo-300 hover:text-white flex items-center gap-1 transition-colors">
-              <span>View all in Invoices Workspace</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left Column: Recent Invoices List */}
-            <div className="lg:col-span-5 space-y-2 max-h-[380px] overflow-y-auto pr-1">
-              {recent_invoices.map((inv) => {
-                const isSelected = selectedInvoice?.id === inv.id
-                const company = inv.customer__company || inv.customer__name || 'BrightWave Inc'
-                const initials = (company[0] || 'C').toUpperCase()
-
-                return (
-                  <div
-                    key={inv.id}
-                    onClick={() => setSelectedInvoiceId(inv.id)}
-                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? 'bg-[#1E1F30] border-indigo-500/80 shadow-md shadow-indigo-500/10'
-                        : 'bg-[#181926]/60 border-slate-800/80 hover:bg-[#1C1D2D]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center font-bold text-indigo-300 text-xs flex-shrink-0">
-                        {initials}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-white truncate">{company}</div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center gap-1.5">
-                          <span>{inv.invoice_number}</span>
-                          <span>•</span>
-                          <span>Due {formatDate(inv.due_date)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="text-xs font-bold text-white">{formatCurrency(inv.total_amount)}</div>
-                      <Badge
-                        variant={inv.status === 'PAID' ? 'success' : inv.status === 'OVERDUE' ? 'danger' : 'neutral'}
-                        className="text-[9px] mt-1 px-1.5 py-0"
-                      >
-                        {inv.status}
-                      </Badge>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Right Column: Selected Invoice Detail Pane */}
-            {selectedInvoice && (
-              <div className="lg:col-span-7 bg-[#1A1B2B] rounded-2xl border border-slate-800 p-5 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-                  <div>
-                    <span className="text-[10px] text-indigo-400 font-mono uppercase tracking-wider font-semibold">
-                      Selected Document
-                    </span>
-                    <h3 className="text-base font-bold text-white">{selectedInvoice.invoice_number}</h3>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-white border-slate-700 bg-slate-800 hover:bg-slate-700"
-                      onClick={() => handleDownloadPDF(selectedInvoice.id, selectedInvoice.invoice_number)}
+            {totalSubscriptions > 0 && (
+              <div className="mt-2 h-36" aria-hidden="true">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={subscription_distribution}
+                      dataKey="count"
+                      nameKey="name"
+                      innerRadius={44}
+                      outerRadius={64}
+                      paddingAngle={2}
+                      stroke="none"
                     >
-                      <Download className="w-3.5 h-3.5 mr-1" />
-                      PDF
-                    </Button>
-                    <Link to="/invoices">
-                      <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                        <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
-                        Open
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
+                      {subscription_distribution.map((entry) => (
+                        <Cell key={entry.name} fill={STATUS_COLORS[entry.name] ?? '#CDD5C8'} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={CHART_TOOLTIP} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <ul className="bl-breakdown">
+              {subscription_distribution.map((entry) => (
+                <li key={entry.name}>
+                  <span>
+                    <i style={{ background: STATUS_COLORS[entry.name] ?? '#CDD5C8' }} />
+                    {entry.name}
+                  </span>
+                  <strong>{entry.count}</strong>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div>
-                    <span className="text-slate-400 text-[10px] block">Customer</span>
-                    <span className="font-semibold text-white truncate block">
-                      {selectedInvoice.customer__company || selectedInvoice.customer__name}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[10px] block">Issue Date</span>
-                    <span className="font-semibold text-white">{formatDate(selectedInvoice.issue_date)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[10px] block">Due Date</span>
-                    <span className="font-semibold text-white">{formatDate(selectedInvoice.due_date)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[10px] block">Balance Due</span>
-                    <span className="font-bold text-rose-400">{formatCurrency(selectedInvoice.balance_due)}</span>
-                  </div>
-                </div>
+      {/* 02 Needs attention */}
+      <section className="bl-portal-section" id="attention" aria-labelledby="attention-heading">
+        <SectionHeading
+          index="02"
+          eyebrow="Needs attention"
+          title="Overdue, oldest first."
+          id="attention-heading"
+          aside={<span className="bl-section-count">{plural(overdue_invoices.length, 'invoice')}</span>}
+        />
+        {overdue_invoices.length === 0 ? (
+          <div className="bl-empty">
+            <FileText size={24} strokeWidth={1.4} />
+            <h3>All caught up.</h3>
+            <p>No invoices are past their due date.</p>
+          </div>
+        ) : (
+          <div className="bl-table-scroll" role="region" aria-label="Overdue invoices" tabIndex={0}>
+            <table className="bl-table">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Customer</th>
+                  <th>Due date</th>
+                  <th>Overdue by</th>
+                  <th className="bl-align-right">Balance due</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overdue_invoices.map((inv) => {
+                  const days = daysOverdue(inv.due_date)
+                  return (
+                    <tr key={inv.id}>
+                      <th scope="row">{inv.invoice_number}</th>
+                      <td>{inv.customer__company || inv.customer__name || '—'}</td>
+                      <td>{formatDate(inv.due_date)}</td>
+                      <td className="bl-amount-due">{days === 0 ? 'Due today' : plural(days, 'day')}</td>
+                      <td className="bl-align-right bl-amount-due">{formatCurrency(inv.balance_due)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* 03 Invoices */}
+      <section className="bl-portal-section" id="invoices" aria-labelledby="invoices-heading">
+        <SectionHeading
+          index="03"
+          eyebrow="Billing"
+          title="Latest invoices."
+          id="invoices-heading"
+          aside={
+            <Link to="/invoices" className="bl-text-link">
+              View invoices <ArrowUpRight size={15} />
+            </Link>
+          }
+        />
+        {recent_invoices.length === 0 ? (
+          <div className="bl-empty">
+            <FileText size={24} strokeWidth={1.4} />
+            <h3>A clean slate.</h3>
+            <p>Invoices will appear here once billing runs or one is created.</p>
+          </div>
+        ) : (
+          <div className="bl-table-scroll" role="region" aria-label="Latest invoices" tabIndex={0}>
+            <table className="bl-table">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Customer</th>
+                  <th>Issued</th>
+                  <th>Due date</th>
+                  <th className="bl-align-right">Total</th>
+                  <th className="bl-align-right">Balance due</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent_invoices.map((inv) => (
+                  <tr key={inv.id}>
+                    <th scope="row">{inv.invoice_number}</th>
+                    <td>{inv.customer__company || inv.customer__name || '—'}</td>
+                    <td className="bl-muted">{formatDate(inv.issue_date)}</td>
+                    <td className="bl-muted">{formatDate(inv.due_date)}</td>
+                    <td className="bl-align-right">{formatCurrency(inv.total_amount)}</td>
+                    <td className={`bl-align-right ${Number(inv.balance_due) > 0 ? 'bl-amount-due' : ''}`}>
+                      {formatCurrency(inv.balance_due)}
+                    </td>
+                    <td>
+                      <StatusText kind="invoice" value={inv.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* 04 Activity */}
+      <section className="bl-portal-section" id="activity" aria-labelledby="activity-heading">
+        <SectionHeading index="04" eyebrow="Activity" title="What’s been happening." id="activity-heading" />
+        <div className="bl-split">
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[15px] font-medium text-[#1f3327]">Recent payments</h3>
+              <Link to="/payments" className="bl-text-link">
+                View all <ArrowUpRight size={15} />
+              </Link>
+            </div>
+            {recent_payments.length === 0 ? (
+              <div className="bl-empty">
+                <CreditCard size={24} strokeWidth={1.4} />
+                <p>No payments recorded yet.</p>
+              </div>
+            ) : (
+              <div className="bl-table-scroll" role="region" aria-label="Recent payments" tabIndex={0}>
+                <table className="bl-table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Method</th>
+                      <th>Date</th>
+                      <th className="bl-align-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recent_payments.map((p) => (
+                      <tr key={p.id}>
+                        <th scope="row">
+                          {p.customer__name || '—'}
+                          {p.invoice__invoice_number && (
+                            <span className="block text-xs font-normal text-[#6b776d]">{p.invoice__invoice_number}</span>
+                          )}
+                        </th>
+                        <td className="bl-muted">{humanize(p.payment_method)}</td>
+                        <td className="bl-muted">{formatDate(p.payment_date)}</td>
+                        <td className="bl-align-right bl-paid-amount">{formatCurrency(p.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[15px] font-medium text-[#1f3327]">New subscriptions</h3>
+              <Link to="/subscriptions" className="bl-text-link">
+                View all <ArrowUpRight size={15} />
+              </Link>
+            </div>
+            {recent_subscriptions.length === 0 ? (
+              <div className="bl-empty">
+                <Repeat size={24} strokeWidth={1.4} />
+                <p>No subscriptions yet.</p>
+              </div>
+            ) : (
+              <div className="bl-table-scroll" role="region" aria-label="New subscriptions" tabIndex={0}>
+                <table className="bl-table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Plan</th>
+                      <th>Created</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recent_subscriptions.map((s) => (
+                      <tr key={s.id}>
+                        <th scope="row">
+                          {s.customer__name || '—'}
+                          <span className="block text-xs font-normal text-[#6b776d]">{s.subscription_number}</span>
+                        </th>
+                        <td className="bl-muted">{s.plan__name || 'No plan'}</td>
+                        <td className="bl-muted">{formatDate(s.created_at)}</td>
+                        <td>
+                          <StatusText kind="subscription" value={s.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         </div>
-      )}
+      </section>
 
-      {/* Visual Analytics Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Revenue Trends */}
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-extrabold text-slate-900 text-base">Billed vs. Collected Revenue</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Monthly financial realization over past 6 months</p>
-            </div>
-            <Link to="/reports" className="text-xs text-indigo-600 hover:underline font-bold flex items-center gap-1">
-              Full Analytics <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenue_trend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <XAxis dataKey="month" stroke="#94A3B8" fontSize={11} tickLine={false} />
-                <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} tickFormatter={(v) => `$${v}`} />
-                <Tooltip
-                  formatter={(val: any) => [formatCurrency(Number(val)), '']}
-                  contentStyle={{ backgroundColor: '#12131F', color: '#fff', borderRadius: '16px', fontSize: '12px', border: '1px solid #334155' }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                <Bar dataKey="billed" name="Billed Amount" fill="#4F46E5" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="collected" name="Cash Collected" fill="#10B981" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Subscription Status Distribution */}
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <h3 className="font-extrabold text-slate-900 text-base">Subscription Status</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Distribution across contract lifecycle states</p>
-          </div>
-
-          <div className="h-56 flex flex-col items-center justify-center my-2">
-            <ResponsiveContainer width="100%" height={170}>
-              <PieChart>
-                <Pie
-                  data={subscription_distribution}
-                  dataKey="count"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={4}
-                >
-                  {subscription_distribution.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={FINNOVA_COLORS[index % FINNOVA_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#12131F', color: '#fff', borderRadius: '16px', fontSize: '12px', border: '1px solid #334155' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2 border-t border-slate-100">
-            {subscription_distribution.map((entry, idx) => (
-              <div key={idx} className="flex items-center gap-1.5 text-xs text-slate-600">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: FINNOVA_COLORS[idx % FINNOVA_COLORS.length] }} />
-                <span>{entry.name}: <b>{entry.count}</b></span>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="bl-portal-endnote">
+        <span>Everything in its place.</span>
+        <p>Run billing from the top bar whenever renewal cycles are due.</p>
+        <Link to="/reports" className="bl-text-link">
+          Open reports <ArrowUpRight size={15} />
+        </Link>
       </div>
-
-      {/* Drill-down Drawer / Modal */}
-      <Modal
-        isOpen={!!drillDownMetric}
-        onClose={() => setDrillDownMetric(null)}
-        title={drillDownTitle}
-        description="Top live contributing records derived from real-time database aggregation."
-        maxWidth="xl"
-      >
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-medium">
-              Showing top {drillDownRecords.length} records
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                isLoading={isExportingCSV}
-                onClick={handleExportDrillDownCSV}
-              >
-                <Download className="w-3.5 h-3.5 mr-1" />
-                Export CSV
-              </Button>
-              {drillDownTargetUrl && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    const target = drillDownTargetUrl
-                    setDrillDownMetric(null)
-                    navigate(target)
-                  }}
-                >
-                  <ExternalLink className="w-3.5 h-3.5 mr-1" />
-                  Open Full List
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {isDrillDownLoading ? (
-            <div className="space-y-2">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-xl" />
-              ))}
-            </div>
-          ) : drillDownRecords.length === 0 ? (
-            <div className="p-8 text-center text-xs text-slate-400">
-              No matching records for this metric.
-            </div>
-          ) : (
-            <div className="border border-slate-200 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                  <tr>
-                    <th className="py-2.5 px-3">Reference</th>
-                    <th className="py-2.5 px-3">Customer</th>
-                    <th className="py-2.5 px-3">Amount</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Status</th>
-                    <th className="py-2.5 px-3">Details</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {drillDownRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/70">
-                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{r.reference}</td>
-                      <td className="py-2.5 px-3 font-medium text-slate-800">{r.customer_name}</td>
-                      <td className="py-2.5 px-3 font-bold text-primary">{formatCurrency(r.amount)}</td>
-                      <td className="py-2.5 px-3 text-slate-500">{formatDate(r.date)}</td>
-                      <td className="py-2.5 px-3">
-                        <Badge variant="neutral">{r.status}</Badge>
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-500 text-[11px] truncate max-w-[180px]">
-                        {r.details}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="pt-2 flex justify-end">
-            <Button variant="outline" onClick={() => setDrillDownMetric(null)}>
-              Close
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }

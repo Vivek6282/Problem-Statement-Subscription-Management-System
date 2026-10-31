@@ -35,6 +35,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ['email', 'password', 'password_confirm', 'first_name', 'last_name', 'phone', 'company_name']
 
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(_("An account with this email already exists."))
+        return value
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({"password": _("Passwords do not match.")})
@@ -75,6 +81,12 @@ class StaffCreateSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'email', 'password', 'first_name', 'last_name', 'phone', 'role', 'is_active']
         read_only_fields = ['id']
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(_("An account with this email already exists."))
+        return value
 
     def validate_password(self, value):
         validate_password(value)

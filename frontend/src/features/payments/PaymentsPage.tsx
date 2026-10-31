@@ -25,6 +25,9 @@ import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
 
+const humanizeMethod = (method: string) =>
+  method.charAt(0) + method.slice(1).toLowerCase().replaceAll('_', ' ')
+
 export const PaymentsPage: React.FC = () => {
   const { isStaff } = useAuth()
   const [payments, setPayments] = useState<Payment[]>([])
@@ -139,8 +142,14 @@ export const PaymentsPage: React.FC = () => {
     <div className="space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Payment Ledger</h1>
-          <p className="text-xs text-slate-500 mt-1">Transaction-safe payment recording, balance reduction, and audit trails</p>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            {isStaff ? 'Payment Ledger' : 'Your payments'}
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {isStaff
+              ? 'Transaction-safe payment recording, balance reduction, and audit trails'
+              : 'Every payment applied to your invoices, with its reference.'}
+          </p>
         </div>
         {isStaff && (
           <Button onClick={openCreateModal}>
@@ -190,8 +199,8 @@ export const PaymentsPage: React.FC = () => {
         </div>
       ) : payments.length === 0 ? (
         <EmptyState
-          title="No Payments Recorded"
-          description="Log customer payments against confirmed invoices."
+          title="No payments yet"
+          description={isStaff ? 'Log customer payments against confirmed invoices.' : 'Payments you make will appear here.'}
           actionLabel={isStaff ? 'Record Payment' : undefined}
           onAction={isStaff ? openCreateModal : undefined}
         />
@@ -228,7 +237,7 @@ export const PaymentsPage: React.FC = () => {
                       {formatDate(p.payment_date)}
                     </td>
                     <td className="py-3.5 px-4">
-                      <Badge variant="neutral">{p.payment_method}</Badge>
+                      <Badge variant="neutral">{humanizeMethod(p.payment_method)}</Badge>
                     </td>
                     <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500">
                       {p.transaction_reference || '-'}
@@ -240,7 +249,7 @@ export const PaymentsPage: React.FC = () => {
                       <button
                         onClick={() => setDetailPay(p)}
                         className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                        title="View Payment"
+                        title="View Payment" aria-label="View Payment"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -282,7 +291,7 @@ export const PaymentsPage: React.FC = () => {
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-500">Payment Method:</span>
-                <span className="font-semibold">{detailPay.payment_method}</span>
+                <span className="font-semibold">{humanizeMethod(detailPay.payment_method)}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-500">External Bank Ref / UTR:</span>

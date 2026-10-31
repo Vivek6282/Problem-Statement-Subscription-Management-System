@@ -1,14 +1,24 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  Repeat,
-  FileText,
-  CreditCard,
-} from 'lucide-react'
-import { BrightloopBrand } from '@/components/layout/BrightloopBrand'
-import '@/styles/brightloop.css'
+import { ArrowLeft, CreditCard, FileText, Repeat } from 'lucide-react'
+import './auth.css'
+
+function AuthBrand() {
+  return (
+    <Link className="auth-brand" to="/" aria-label="Brightloop home">
+      <span className="auth-brand-mark" aria-hidden="true">
+        <Repeat size={15} strokeWidth={2.4} />
+      </span>
+      brightloop<span className="auth-brand-period">.</span>
+    </Link>
+  )
+}
+
+const benefits = [
+  { icon: Repeat, label: 'Subscriptions that fit your rhythm.' },
+  { icon: FileText, label: 'Every invoice, right where you need it.' },
+  { icon: CreditCard, label: 'A clear picture of your payments.' },
+]
 
 export function AuthLayout({
   children,
@@ -18,11 +28,10 @@ export function AuthLayout({
   mode?: 'login' | 'register' | 'reset'
 }) {
   return (
-    <div className="bl-theme bl-auth">
-      <aside className="bl-auth-story">
-        <BrightloopBrand />
-        <div className="bl-auth-story-content">
-          <span className="bl-eyebrow">A LITTLE LESS TO MANAGE</span>
+    <div className="auth">
+      <aside className="auth-aside">
+        <AuthBrand />
+        <div className="auth-story">
           <h2>
             Your subscriptions.
             <br />
@@ -31,46 +40,30 @@ export function AuthLayout({
             <em>A simpler day.</em>
           </h2>
           <p>
-            A clear view of your plans, payments, and everything in between. All
-            together in Brightloop.
+            A clear view of your plans, payments, and everything in between.
+            All together in Brightloop.
           </p>
-          <div className="bl-auth-benefits">
-            <div>
-              <Repeat size={19} />
-              <span>Subscriptions that fit your rhythm.</span>
-            </div>
-            <div>
-              <FileText size={19} />
-              <span>Every invoice, right where you need it.</span>
-            </div>
-            <div>
-              <CreditCard size={19} />
-              <span>A clear picture of your payments.</span>
-            </div>
-          </div>
+          <ul className="auth-benefits">
+            {benefits.map(({ icon: Icon, label }) => (
+              <li key={label}>
+                <Icon size={17} strokeWidth={1.6} aria-hidden="true" />
+                {label}
+              </li>
+            ))}
+          </ul>
         </div>
-        <div className="bl-auth-story-footer">
-          <span>Less busywork. More breathing room.</span>
-          <ArrowUpRight size={22} />
-        </div>
+        <p className="auth-aside-footer">Less busywork. More breathing room.</p>
       </aside>
-      <main className="bl-auth-main">
-        <div className="bl-auth-top">
-          <Link to="/" className="bl-text-link">
-            <ArrowLeft size={15} /> Back to home
+
+      <main className="auth-main">
+        <div className="auth-top">
+          <AuthBrand />
+          <Link to="/" className="auth-back" aria-label="Back to home">
+            <ArrowLeft size={15} aria-hidden="true" />
+            <span>Back to home</span>
           </Link>
-          <span>
-            {mode === 'register' ? 'Already a member?' : 'New to Brightloop?'}{' '}
-            <Link to={mode === 'register' ? '/login' : '/register'}>
-              {mode === 'register' ? 'Sign in' : 'Create an account'}{' '}
-              <ArrowUpRight size={13} />
-            </Link>
-          </span>
         </div>
-        <div className={`bl-auth-form bl-auth-form-${mode}`}>{children}</div>
-        <footer className="bl-auth-footer">
-          A brighter way to manage your subscriptions.
-        </footer>
+        <div className={`auth-panel auth-panel-${mode}`}>{children}</div>
       </main>
     </div>
   )
