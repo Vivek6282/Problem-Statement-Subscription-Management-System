@@ -81,11 +81,23 @@ def generate_invoice_pdf(invoice):
     elements.append(item_table)
     elements.append(Spacer(1, 15))
 
-    # Summary Totals
+    # Summary Totals (with discount codes and per-rule tax breakdown)
+    discount_label = ", ".join(d.get('code', '') for d in (invoice.applied_discounts or []) if d.get('code'))
+    tax_rows = {}
+    for item in invoice.items.all():
+        for t in (item.tax_breakdown or []):
+            key = f"{t['name']} ({t['rate']}%)"
+            tax_rows[key] = tax_rows.get(key, 0) + float(t['amount'])
+
     totals_data = [
         ["Subtotal:", f"${invoice.subtotal:,.2f}"],
-        ["Discounts:", f"-${invoice.discount_amount:,.2f}"],
-        ["Taxes:", f"+${invoice.tax_amount:,.2f}"],
+        [f"Discounts{' (' + discount_label + ')' if discount_label else ''}:", f"-${invoice.discount_amount:,.2f}"],
+    ]
+    for label, amount in tax_rows.items():
+        totals_data.append([f"{label}:", f"+${amount:,.2f}"])
+    if not tax_rows:
+        totals_data.append(["Taxes:", f"+${invoice.tax_amount:,.2f}"])
+    totals_data += [
         ["Total Amount:", f"${invoice.total_amount:,.2f}"],
         ["Total Paid:", f"${invoice.paid_amount:,.2f}"],
         ["Balance Due:", f"${invoice.balance_due:,.2f}"]

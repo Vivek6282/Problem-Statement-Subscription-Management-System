@@ -50,6 +50,8 @@ class Invoice(models.Model):
     total_amount = models.DecimalField(_('total amount'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
     paid_amount = models.DecimalField(_('paid amount'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
     balance_due = models.DecimalField(_('balance due'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    applied_discounts = models.JSONField(_('applied discounts snapshot'), default=list, blank=True)
+    sent_at = models.DateTimeField(_('last sent at'), null=True, blank=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -58,6 +60,19 @@ class Invoice(models.Model):
         verbose_name = _('invoice')
         verbose_name_plural = _('invoices')
         ordering = ['-issue_date', '-created_at']
+        constraints = [
+            # One invoice per subscription billing period: billing can be retried safely
+            models.UniqueConstraint(
+                fields=['subscription', 'billing_period_start', 'billing_period_end'],
+                condition=models.Q(subscription__isnull=False, billing_period_start__isnull=False, billing_period_end__isnull=False),
+                name='uniq_invoice_per_subscription_period',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['status', 'due_date'], name='inv_status_due_idx'),
+            models.Index(fields=['customer', 'status'], name='inv_customer_status_idx'),
+            models.Index(fields=['issue_date'], name='inv_issue_idx'),
+        ]
 
     def __str__(self):
         return f"{self.invoice_number} - {self.customer.name} (${self.total_amount})"
@@ -80,6 +95,21 @@ class Invoice(models.Model):
             self.balance_due > Decimal('0.00')
         )
 
+    def refresh_payment_status(self, today=None):
+        """Derives the status from the money: Paid / Overdue / Partially Paid / Confirmed (never touches Draft / Cancelled)."""
+        if self.status in (InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED):
+            return self.status
+        today = today or datetime.date.today()
+        if self.balance_due <= Decimal('0.00'):
+            self.status = InvoiceStatus.PAID
+        elif self.due_date < today:
+            self.status = InvoiceStatus.OVERDUE
+        elif self.paid_amount > Decimal('0.00'):
+            self.status = InvoiceStatus.PARTIALLY_PAID
+        else:
+            self.status = InvoiceStatus.CONFIRMED
+        return self.status
+
     def check_and_update_overdue_status(self):
         """Updates status to OVERDUE if overdue criteria met."""
         if self.is_overdue and self.status != InvoiceStatus.OVERDUE:
@@ -100,6 +130,7 @@ class InvoiceItem(models.Model):
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     line_total = models.DecimalField(_('line total snapshot'), max_digits=12, decimal_places=2)
+    tax_breakdown = models.JSONField(_('tax breakdown snapshot'), default=list, blank=True)
 
     class Meta:
         verbose_name = _('invoice item')
