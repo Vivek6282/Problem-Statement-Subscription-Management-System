@@ -88,22 +88,20 @@ export const ReportsPage: React.FC = () => {
 
   const fetchReports = async () => {
     setIsLoading(true)
-    try {
-      const [mrrRes, trendsRes, statusRes, payRes] = await Promise.all([
-        api.get(`/reports/mrr-breakdown/?group_by=${mrrGroupBy}`),
-        api.get('/reports/revenue-trends/?months=12'),
-        api.get('/reports/subscriptions-by-status/'),
-        api.get('/reports/payment-methods/'),
-      ])
-      setMrrBreakdown(mrrRes.data)
-      setRevenueTrends(trendsRes.data)
-      setSubscriptionsByStatus(statusRes.data)
-      setPaymentMethods(payRes.data)
-    } catch (err) {
-      console.error('Failed to load reports:', err)
-    } finally {
-      setIsLoading(false)
-    }
+    // Load each report independently so one failing endpoint can't blank the whole page.
+    const [mrrRes, trendsRes, statusRes, payRes] = await Promise.allSettled([
+      api.get(`/reports/mrr-breakdown/?group_by=${mrrGroupBy}`),
+      api.get('/reports/revenue-trends/?months=12'),
+      api.get('/reports/subscriptions-by-status/'),
+      api.get('/reports/payment-methods/'),
+    ])
+    if (mrrRes.status === 'fulfilled') setMrrBreakdown(mrrRes.value.data)
+    if (trendsRes.status === 'fulfilled') setRevenueTrends(trendsRes.value.data)
+    if (statusRes.status === 'fulfilled') setSubscriptionsByStatus(statusRes.value.data)
+    if (payRes.status === 'fulfilled') setPaymentMethods(payRes.value.data)
+    const failed = [mrrRes, trendsRes, statusRes, payRes].filter((r) => r.status === 'rejected')
+    if (failed.length) console.error('Some reports failed to load:', failed)
+    setIsLoading(false)
   }
 
   useEffect(() => {
@@ -427,7 +425,9 @@ export const ReportsPage: React.FC = () => {
             <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/60 flex flex-col justify-between">
               <div>
                 <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">Gateway / Method</span>
-                <span className="text-base font-bold text-slate-900 mt-1 block">{m.method}</span>
+                <span className="text-base font-bold text-slate-900 mt-1 block">
+                  {String(m.method).charAt(0) + String(m.method).slice(1).toLowerCase().replaceAll('_', ' ')}
+                </span>
               </div>
               <div className="mt-3 pt-2 border-t border-slate-200/60 flex items-baseline justify-between">
                 <span className="text-xs font-extrabold text-primary">{formatCurrency(m.total_amount)}</span>

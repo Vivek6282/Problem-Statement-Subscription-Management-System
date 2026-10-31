@@ -240,3 +240,15 @@ class ReportingDrillDownTests(TestCase):
         content = res.content.decode('utf-8')
         self.assertIn('Invoice Number,Customer,Status', content)
 
+
+    def test_payment_method_distribution(self):
+        """The Reports page loads this alongside the other reports; it must exist for staff."""
+        invoice = Invoice.objects.create(customer=self.customer, due_date=datetime.date.today())
+        for amount, method in [('60.00', PaymentMethod.CARD), ('40.00', PaymentMethod.CARD), ('25.50', PaymentMethod.CASH)]:
+            Payment.objects.create(invoice=invoice, customer=self.customer, amount=Decimal(amount), payment_method=method)
+
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get('/api/v1/reports/payment-methods/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data[0], {'method': PaymentMethod.CARD, 'total_amount': '100.00', 'count': 2})
+        self.assertEqual(res.data[1]['total_amount'], '25.50')

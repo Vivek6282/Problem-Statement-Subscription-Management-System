@@ -19,6 +19,14 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
         'items__product', 'items__variant', 'items__tax_rule', 'items__discount'
     ).order_by('-created_at')
     permission_classes = [CustomerAccessPolicyPermission]
+
+    # Customers may read their own records; creating, editing and deleting is staff work.
+    STAFF_ONLY_ACTIONS = {'create', 'update', 'partial_update', 'destroy'}
+
+    def get_permissions(self):
+        if self.action in self.STAFF_ONLY_ACTIONS:
+            return [IsStaffOrAdmin()]
+        return super().get_permissions()
     filterset_fields = ['status', 'customer', 'plan', 'payment_terms']
     search_fields = ['subscription_number', 'customer__name', 'customer__company', 'plan__name']
 
@@ -102,6 +110,8 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def close(self, request, pk=None):
         sub = self.get_object()
+        if request.user.is_customer_user and not sub.plan.allow_early_close:
+            return Response({'error': "This plan does not permit early closing."}, status=status.HTTP_400_BAD_REQUEST)
         if not sub.can_transition_to(SubscriptionStatus.CLOSED):
             return Response({'error': f"Cannot close subscription from status: {sub.status}"}, status=status.HTTP_400_BAD_REQUEST)
 

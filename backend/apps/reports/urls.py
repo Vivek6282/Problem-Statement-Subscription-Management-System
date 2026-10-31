@@ -7,6 +7,7 @@ from .views import (
     SubscriptionsByStatusView,
     DrillDownView,
     ExportReportCSVView,
+    PaymentMethodDistributionView,
 )
 
 urlpatterns = [
@@ -16,6 +17,7 @@ urlpatterns = [
     path('revenue-trends/', RevenueTrendsView.as_view(), name='reports_revenue_trends'),
     path('subscriptions-by-status/', SubscriptionsByStatusView.as_view(), name='reports_subscriptions_by_status'),
     path('drilldown/', DrillDownView.as_view(), name='reports_drilldown'),
+    path('payment-methods/', PaymentMethodDistributionView.as_view(), name='reports_payment_methods'),
     path('export/', ExportReportCSVView.as_view(), name='reports_export'),
     path('export-csv/', ExportReportCSVView.as_view(), name='reports_export_csv'),
 ]

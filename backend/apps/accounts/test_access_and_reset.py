@@ -226,3 +226,18 @@ class CustomerIsolationTests(TestCase):
     def test_signed_out_requests_are_rejected(self):
         res = APIClient().get('/api/v1/invoices/')
         self.assertIn(res.status_code, (401, 403))
+
+
+class CsrfSessionHintTests(TestCase):
+    """The public CSRF endpoint tells the app whether a session exists."""
+
+    def test_anonymous_visitor_is_not_authenticated(self):
+        res = APIClient().get('/api/v1/auth/csrf/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIs(res.data['authenticated'], False)
+        self.assertTrue(res.data['csrfToken'])
+
+    def test_signed_in_user_is_authenticated(self):
+        user = make_user('signed.in@test.io', Role.CUSTOMER)
+        res = client_for(user).get('/api/v1/auth/csrf/')
+        self.assertIs(res.data['authenticated'], True)

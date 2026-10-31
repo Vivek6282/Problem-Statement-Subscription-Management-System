@@ -23,8 +23,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchCurrentUser = async () => {
     try {
-      // First ensure CSRF cookie is initialized
-      await api.get('/auth/csrf/').catch(() => null)
+      // First ensure CSRF cookie is initialized; it also says whether a session exists.
+      const csrf = await api.get('/auth/csrf/').catch(() => null)
+      if (csrf?.data?.authenticated === false) {
+        setUser(null)
+        return
+      }
       const res = await api.get<User>('/auth/me/')
       setUser(res.data)
     } catch {

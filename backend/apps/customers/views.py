@@ -1,7 +1,7 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from apps.accounts.permissions import CustomerAccessPolicyPermission
+from apps.accounts.permissions import CustomerAccessPolicyPermission, IsStaffOrAdmin
 from .models import Customer, CustomerStatus
 from .serializers import CustomerSerializer, CustomerCreateUpdateSerializer
 
@@ -12,6 +12,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
     """
     queryset = Customer.objects.all().order_by('-created_at')
     permission_classes = [CustomerAccessPolicyPermission]
+
+    # Customers may read their own records; creating, editing and deleting is staff work.
+    STAFF_ONLY_ACTIONS = {'create', 'update', 'partial_update', 'destroy', 'archive', 'restore'}
+
+    def get_permissions(self):
+        if self.action in self.STAFF_ONLY_ACTIONS:
+            return [IsStaffOrAdmin()]
+        return super().get_permissions()
     filterset_fields = ['status', 'country']
     search_fields = ['reference', 'name', 'company', 'email', 'phone']
 
@@ -34,14 +42,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
         instance.status = CustomerStatus.ARCHIVED
         instance.save()
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsStaffOrAdmin])
     def archive(self, request, pk=None):
         customer = self.get_object()
         customer.status = CustomerStatus.ARCHIVED
         customer.save()
         return Response({'status': 'Customer archived successfully.'})
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsStaffOrAdmin])
     def restore(self, request, pk=None):
         customer = self.get_object()
         customer.status = CustomerStatus.ACTIVE

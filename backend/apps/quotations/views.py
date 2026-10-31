@@ -19,6 +19,14 @@ class QuotationViewSet(viewsets.ModelViewSet):
         'items__product', 'items__variant'
     ).order_by('-created_at')
     permission_classes = [CustomerAccessPolicyPermission]
+
+    # Customers may read their own records; creating, editing and deleting is staff work.
+    STAFF_ONLY_ACTIONS = {'create', 'update', 'partial_update', 'destroy'}
+
+    def get_permissions(self):
+        if self.action in self.STAFF_ONLY_ACTIONS:
+            return [IsStaffOrAdmin()]
+        return super().get_permissions()
     filterset_fields = ['status', 'customer', 'plan']
     search_fields = ['quotation_number', 'customer__name', 'customer__company']
 

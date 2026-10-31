@@ -58,7 +58,12 @@ class CSRFView(views.APIView):
     )
     def get(self, request):
         csrf_token = get_token(request)
-        response = Response({'csrfToken': csrf_token})
+        # 'authenticated' lets the app skip /auth/me/ for signed-out visitors
+        # instead of logging a 403 on every public page load.
+        response = Response({
+            'csrfToken': csrf_token,
+            'authenticated': bool(request.user and request.user.is_authenticated),
+        })
         return response
 
 

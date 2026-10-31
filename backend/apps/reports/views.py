@@ -389,6 +389,27 @@ class SubscriptionsByStatusView(views.APIView):
         return Response(results)
 
 
+class PaymentMethodDistributionView(views.APIView):
+    """Cash collected per payment method, largest first (used by the Reports page)."""
+    permission_classes = [IsStaffOrAdmin]
+
+    def get(self, request):
+        records = (
+            Payment.objects.values('payment_method')
+            .annotate(total_amount=Sum('amount'), total_count=Count('id'))
+            .order_by('-total_amount')
+        )
+        data = [
+            {
+                'method': rec['payment_method'],
+                'total_amount': f"{(rec['total_amount'] or Decimal('0.00')):.2f}",
+                'count': rec['total_count'],
+            }
+            for rec in records
+        ]
+        return Response(data)
+
+
 class DrillDownView(views.APIView):
     """
     Returns underlying records for a specific high-level metric.
