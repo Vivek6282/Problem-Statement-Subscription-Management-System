@@ -5,7 +5,6 @@ import { formatDate } from '@/lib/utils'
 import { formatApiError } from '@/lib/apiErrors'
 import type { User } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
-import { AccessDeniedPage } from '@/features/auth/AccessDeniedPage'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -34,7 +33,8 @@ const roleBadge: Record<string, 'danger' | 'info' | 'success'> = {
 
 /** Admin-only screen for adding staff and admin accounts and switching access on or off. */
 export const TeamPage: React.FC = () => {
-  const { user: currentUser, isAdmin } = useAuth()
+  // Admin-only access is enforced by <RoleRoute allow="admin"> in App.tsx and by the API.
+  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -50,12 +50,17 @@ export const TeamPage: React.FC = () => {
     setIsLoading(true)
     setListError(null)
     try {
-      const params = new URLSearchParams()
-      if (search) params.append('search', search)
-      if (roleFilter !== 'TEAM') params.append('role', roleFilter)
-      const res = await api.get(`/auth/users/?${params.toString()}`)
-      const rows: User[] = res.data.results || res.data
-      setUsers(roleFilter === 'TEAM' ? rows.filter((u) => u.role !== 'CUSTOMER') : rows)
+      // The API filters one role at a time, so "Admins & Staff" asks for both
+      // instead of hiding customers client-side (which would push staff off the first page).
+      const roles = roleFilter === 'TEAM' ? ['ADMIN', 'STAFF'] : [roleFilter]
+      const responses = await Promise.all(
+        roles.map((role) => {
+          const params = new URLSearchParams({ role })
+          if (search) params.append('search', search)
+          return api.get(`/auth/users/?${params.toString()}`)
+        }),
+      )
+      setUsers(responses.flatMap((res) => (res.data.results || res.data) as User[]))
     } catch (err) {
       setListError(formatApiError(err, 'Could not load accounts. Please try again.'))
     } finally {
@@ -64,12 +69,8 @@ export const TeamPage: React.FC = () => {
   }
 
   useEffect(() => {
-    if (isAdmin) fetchUsers()
-  }, [search, roleFilter, isAdmin])
-
-  if (!isAdmin) {
-    return <AccessDeniedPage requiredRole="administrators" />
-  }
+    fetchUsers()
+  }, [search, roleFilter])
 
   const openCreateModal = () => {
     setFormData(emptyForm)
