@@ -28,7 +28,7 @@
 | **Catalog: Tax Jurisdictions** | **Complete** | Applicable product restrictions (global or specific); date validity windows; archival protection on past invoices; staff read-only view. |
 | **Catalog: Promotions & Discounts** | **Complete** | Percentage & Fixed coupons; redemption caps; interactive coupon tester tool (`validate-code`) available to Staff & Admin; archival protection on redemption history. |
 | **Staff & Access Control (`/staff`)** | **Complete** | Accessible strictly by Admin; staff creation with initial password generation; role update (ADMIN <-> STAFF); deactivation terminating active sessions; self-deactivation & last-admin safeguards; audit logging. |
-| **Financial Reporting Core (`apps/reports`)** | **Complete** | SQL CASE aggregations for MRR (Daily * 30, Weekly * 4.33, Monthly * 1, Yearly / 12); ARR = MRR * 12; Overdue criteria (`OVERDUE` or past due date with balance > 0); Churn rate calculation; Decimal string wire format. |
+| **Financial Reporting Core (`apps/reports`)** | **Complete** | SQL CASE aggregations for MRR (Daily * 30, Weekly * 52/12, Monthly * 1, Yearly / 12); ARR = MRR * 12; Overdue criteria (`OVERDUE` or past due date with balance > 0); Churn rate calculation; Decimal string wire format. |
 | **Interactive Dashboard (`/dashboard`)** | **Complete** | Clickable metric cards with query parameters (`?status=ACTIVE`, `?status=OVERDUE`, `?status=UNPAID`); quick drill-down preview drawer; CSV export per metric; preserved Finnova pastel styling. |
 | **Reports & Analytics (`/reports`)** | **Complete** | Plan vs. Product MRR toggle table; 12-month revenue realization chart; subscription lifecycle distribution; payment method settlement distribution; date range presets; sanitized CSV exports. |
 

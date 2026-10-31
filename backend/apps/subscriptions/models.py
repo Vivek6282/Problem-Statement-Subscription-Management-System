@@ -10,6 +10,16 @@ from apps.products.models import Product, ProductVariant
 from apps.taxes.models import TaxRule
 from apps.discounts.models import Discount
 
+# Monthly multiplier per billing interval: DAILY x30, WEEKLY x52/12, MONTHLY x1, YEARLY /12.
+# Single source of truth for the model and the SQL aggregation in apps.reports.
+# Multiplication only (no SQL division) so SQLite and PostgreSQL agree.
+MRR_FACTORS = {
+    BillingInterval.DAILY: Decimal('30'),
+    BillingInterval.WEEKLY: Decimal(52) / Decimal(12),
+    BillingInterval.MONTHLY: Decimal('1'),
+    BillingInterval.YEARLY: Decimal(1) / Decimal(12),
+}
+
 class SubscriptionStatus(models.TextChoices):
     DRAFT = 'DRAFT', _('Draft')
     QUOTATION = 'QUOTATION', _('Quotation')
@@ -88,27 +98,20 @@ class Subscription(models.Model):
         return self.plan.price + items_total
 
     @property
-    def normalized_mrr(self):
+    def normalized_mrr_exact(self):
         """
-        Calculates normalized Monthly Recurring Revenue for this subscription:
-        DAILY: recurring_total * 30
-        WEEKLY: recurring_total * 4.33
-        MONTHLY: recurring_total * 1
-        YEARLY: recurring_total / 12
+        Unrounded normalised MRR. Multipliers: DAILY x30, WEEKLY x52/12,
+        MONTHLY x1, YEARLY /12, applied to the plan price plus line items.
+        Sum these and round once to match the SQL total in apps.reports.
         """
         if self.status != SubscriptionStatus.ACTIVE:
-            return Decimal('0.00')
-        base = self.recurring_subtotal
-        interval = self.plan.billing_interval
-        if interval == BillingInterval.DAILY:
-            return (base * Decimal('30')).quantize(Decimal('0.01'))
-        elif interval == BillingInterval.WEEKLY:
-            return (base * Decimal('4.33')).quantize(Decimal('0.01'))
-        elif interval == BillingInterval.MONTHLY:
-            return (base * Decimal('1.00')).quantize(Decimal('0.01'))
-        elif interval == BillingInterval.YEARLY:
-            return (base / Decimal('12')).quantize(Decimal('0.01'))
-        return base.quantize(Decimal('0.01'))
+            return Decimal('0')
+        return self.recurring_subtotal * MRR_FACTORS.get(self.plan.billing_interval, Decimal('1'))
+
+    @property
+    def normalized_mrr(self):
+        """Normalised MRR for this subscription, rounded to 2 decimals for display."""
+        return self.normalized_mrr_exact.quantize(Decimal('0.01'))
 
     def can_transition_to(self, target_status):
         """

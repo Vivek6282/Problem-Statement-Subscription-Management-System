@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from apps.accounts.permissions import IsStaffOrAdmin
 from apps.customers.models import Customer, CustomerStatus
-from apps.subscriptions.models import Subscription, SubscriptionStatus, SubscriptionItem
+from apps.subscriptions.models import MRR_FACTORS, Subscription, SubscriptionStatus, SubscriptionItem
 from apps.invoices.models import Invoice, InvoiceStatus, InvoiceItem
 from apps.payments.models import Payment, PaymentMethod
 from apps.plans.models import Plan, BillingInterval
@@ -38,65 +38,45 @@ def sanitize_csv_cell(val):
     return s
 
 
+_MONEY_FIELD = DecimalField(max_digits=18, decimal_places=6)
+
+
+def mrr_case(amount_expr, interval_path):
+    """
+    CASE expression turning a recurring amount into normalised monthly revenue.
+    `interval_path` is the lookup to the plan billing interval, e.g. 'plan__billing_interval'.
+    """
+    whens = [
+        When(
+            **{interval_path: interval},
+            then=ExpressionWrapper(
+                amount_expr * Value(factor),
+                output_field=_MONEY_FIELD,
+            ),
+        )
+        for interval, factor in MRR_FACTORS.items()
+    ]
+    return Case(*whens, default=Value(Decimal('0')), output_field=_MONEY_FIELD)
+
+
 def calculate_mrr_sql(qs=None):
     """
-    Computes exact database-aggregated MRR in SQL using CASE expressions.
-    Multipliers:
-      DAILY: amount * 30.00
-      WEEKLY: amount * 4.33
-      MONTHLY: amount * 1.00
-      YEARLY: amount / 12.00
+    Database-aggregated MRR for ACTIVE subscriptions (plan price plus line items).
+    Multipliers: DAILY x30, WEEKLY x52/12, MONTHLY x1, YEARLY /12.
+    Only the final sum is rounded to 2 decimals.
     """
     if qs is None:
         active_subs = Subscription.objects.filter(status=SubscriptionStatus.ACTIVE)
     else:
         active_subs = qs.filter(status=SubscriptionStatus.ACTIVE)
 
-    mrr_plan_case = Case(
-        When(
-            plan__billing_interval=BillingInterval.DAILY,
-            then=ExpressionWrapper(F('plan__price') * Value(Decimal('30.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        When(
-            plan__billing_interval=BillingInterval.WEEKLY,
-            then=ExpressionWrapper(F('plan__price') * Value(Decimal('4.33')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        When(
-            plan__billing_interval=BillingInterval.MONTHLY,
-            then=ExpressionWrapper(F('plan__price') * Value(Decimal('1.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        When(
-            plan__billing_interval=BillingInterval.YEARLY,
-            then=ExpressionWrapper(F('plan__price') / Value(Decimal('12.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        default=Value(Decimal('0.00')),
-        output_field=DecimalField(max_digits=14, decimal_places=2)
-    )
+    plan_total = active_subs.aggregate(
+        total=Sum(mrr_case(F('plan__price'), 'plan__billing_interval'))
+    )['total'] or Decimal('0')
 
-    plan_total = active_subs.aggregate(total=Sum(mrr_plan_case))['total'] or Decimal('0.00')
-
-    item_mrr_case = Case(
-        When(
-            subscription__plan__billing_interval=BillingInterval.DAILY,
-            then=ExpressionWrapper(F('unit_price') * F('quantity') * Value(Decimal('30.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        When(
-            subscription__plan__billing_interval=BillingInterval.WEEKLY,
-            then=ExpressionWrapper(F('unit_price') * F('quantity') * Value(Decimal('4.33')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        When(
-            subscription__plan__billing_interval=BillingInterval.MONTHLY,
-            then=ExpressionWrapper(F('unit_price') * F('quantity') * Value(Decimal('1.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        When(
-            subscription__plan__billing_interval=BillingInterval.YEARLY,
-            then=ExpressionWrapper(F('unit_price') * F('quantity') / Value(Decimal('12.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-        ),
-        default=Value(Decimal('0.00')),
-        output_field=DecimalField(max_digits=14, decimal_places=2)
-    )
-
-    items_total = SubscriptionItem.objects.filter(subscription__in=active_subs).aggregate(total=Sum(item_mrr_case))['total'] or Decimal('0.00')
+    items_total = SubscriptionItem.objects.filter(subscription__in=active_subs).aggregate(
+        total=Sum(mrr_case(F('unit_price') * F('quantity'), 'subscription__plan__billing_interval'))
+    )['total'] or Decimal('0')
 
     return (plan_total + items_total).quantize(Decimal('0.01'))
 
@@ -276,27 +256,8 @@ class MRRBreakdownView(views.APIView):
             for p in products:
                 items = SubscriptionItem.objects.filter(subscription__in=active_subs, product=p)
                 active_units = items.aggregate(total_units=Sum('quantity'))['total_units'] or 0
-                item_mrr_case = Case(
-                    When(
-                        subscription__plan__billing_interval=BillingInterval.DAILY,
-                        then=ExpressionWrapper(F('unit_price') * F('quantity') * Value(Decimal('30.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-                    ),
-                    When(
-                        subscription__plan__billing_interval=BillingInterval.WEEKLY,
-                        then=ExpressionWrapper(F('unit_price') * F('quantity') * Value(Decimal('4.33')), output_field=DecimalField(max_digits=14, decimal_places=2))
-                    ),
-                    When(
-                        subscription__plan__billing_interval=BillingInterval.MONTHLY,
-                        then=ExpressionWrapper(F('unit_price') * F('quantity') * Value(Decimal('1.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-                    ),
-                    When(
-                        subscription__plan__billing_interval=BillingInterval.YEARLY,
-                        then=ExpressionWrapper(F('unit_price') * F('quantity') / Value(Decimal('12.00')), output_field=DecimalField(max_digits=14, decimal_places=2))
-                    ),
-                    default=Value(Decimal('0.00')),
-                    output_field=DecimalField(max_digits=14, decimal_places=2)
-                )
-                product_mrr = items.aggregate(total=Sum(item_mrr_case))['total'] or Decimal('0.00')
+                item_mrr_case = mrr_case(F('unit_price') * F('quantity'), 'subscription__plan__billing_interval')
+                product_mrr = (items.aggregate(total=Sum(item_mrr_case))['total'] or Decimal('0')).quantize(Decimal('0.01'))
                 if active_units > 0 or product_mrr > 0:
                     data.append({
                         'product_id': p.id,

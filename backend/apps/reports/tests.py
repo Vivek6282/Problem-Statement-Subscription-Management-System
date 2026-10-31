@@ -146,3 +146,32 @@ class PublicSummaryPrivacyTestCase(TestCase):
         self.assertEqual(res.json(), {'status': 'HEALTHY'})
         for key in ('mrr', 'arr', 'showcase_invoices', 'database_engine', 'billing_engine'):
             self.assertNotIn(key, res.json())
+
+
+class MRRDefinitionTestCase(TestCase):
+    """Model and SQL MRR must agree: DAILY x30, WEEKLY x52/12, MONTHLY x1, YEARLY /12."""
+
+    def test_model_and_sql_totals_match_for_all_intervals(self):
+        from apps.reports.views import calculate_mrr_sql
+        customer = Customer.objects.create(name='MRR Co', email='mrr@example.com')
+        product = Product.objects.create(sku='MRR-1', name='Seat', sales_price=Decimal('10.00'), cost_price=Decimal('1.00'))
+        prices = {
+            BillingInterval.WEEKLY: Decimal('10.01'),
+            BillingInterval.DAILY: Decimal('1.00'),
+            BillingInterval.MONTHLY: Decimal('49.99'),
+            BillingInterval.YEARLY: Decimal('100.00'),
+        }
+        subs = []
+        for interval, price in prices.items():
+            plan = Plan.objects.create(name=f'{interval} plan', code=f'mrr-{interval.lower()}', price=price, billing_interval=interval)
+            sub = Subscription.objects.create(customer=customer, plan=plan, status=SubscriptionStatus.ACTIVE, start_date=datetime.date.today())
+            SubscriptionItem.objects.create(subscription=sub, product=product, quantity=3, unit_price=Decimal('3.33'))
+            subs.append(sub)
+
+        weekly = next(s for s in subs if s.plan.billing_interval == BillingInterval.WEEKLY)
+        # (10.01 + 3 * 3.33) * 52 / 12 = 20.00 * 52 / 12 = 86.666...
+        self.assertEqual(weekly.normalized_mrr_exact.quantize(Decimal('0.0001')), Decimal('86.6667'))
+        self.assertEqual(weekly.normalized_mrr, Decimal('86.67'))
+
+        model_total = sum((s.normalized_mrr_exact for s in subs), Decimal('0')).quantize(Decimal('0.01'))
+        self.assertEqual(model_total, calculate_mrr_sql())

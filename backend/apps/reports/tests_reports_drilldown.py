@@ -66,10 +66,10 @@ class ReportingDrillDownTests(TestCase):
         """
         Known dataset:
         1 daily ($1/day = $30/mo)
-        1 weekly ($10/wk = $43.30/mo)
+        1 weekly ($10/wk = $43.33/mo, x52/12)
         1 monthly ($100/mo)
         1 yearly ($1200/yr = $100/mo)
-        Total MRR = 30 + 43.30 + 100 + 100 = 273.30
+        Total MRR = 30 + 43.333 + 100 + 100 = 273.33
         """
         Subscription.objects.create(
             customer=self.customer,
@@ -101,15 +101,15 @@ class ReportingDrillDownTests(TestCase):
         )
 
         calculated_mrr = calculate_mrr_sql()
-        self.assertEqual(calculated_mrr, Decimal('273.30'))
+        self.assertEqual(calculated_mrr, Decimal('273.33'))
 
         # Also verify via the dashboard endpoint
         self.client.force_authenticate(user=self.admin)
         res = self.client.get('/api/v1/reports/dashboard/')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data['metrics']['mrr'], '273.30')
-        # ARR = MRR * 12 = 3279.60
-        self.assertEqual(res.data['metrics']['arr'], '3279.60')
+        self.assertEqual(res.data['metrics']['mrr'], '273.33')
+        # ARR = MRR * 12 = 3279.96
+        self.assertEqual(res.data['metrics']['arr'], '3279.96')
 
     def test_paused_and_closed_subscriptions_do_not_contribute_to_mrr(self):
         # Active subscription: $100/mo
