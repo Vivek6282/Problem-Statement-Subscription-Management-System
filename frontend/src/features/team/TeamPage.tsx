@@ -198,7 +198,7 @@ export const TeamPage: React.FC = () => {
                         <div className="font-bold text-slate-900">
                           {u.full_name || '-'} {isSelf && <span className="text-[11px] font-medium text-slate-400">(you)</span>}
                         </div>
-                        <div className="text-[11px] text-slate-500">{u.phone || '-'}</div>
+                        {u.phone && <div className="text-[11px] text-slate-500">{u.phone}</div>}
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">{u.email}</td>
                       <td className="py-3.5 px-4">

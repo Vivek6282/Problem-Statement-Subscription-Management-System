@@ -385,6 +385,9 @@
 .bl-sidebar-intro {
   margin: 24px 12px 22px;
 }
+.bl-sidebar-spacer {
+  height: 28px;
+}
 .bl-sidebar-intro .bl-eyebrow {
   font-size: 11px;
 }
@@ -1039,6 +1042,9 @@
 }
 .bl-customer-content :is(.font-black, .font-extrabold, .font-bold) {
   font-weight: 600;
+}
+.bl-customer-content h1:is(.text-2xl, .text-3xl) + p {
+  font-size: 14px;
 }
 .bl-customer-content h1:is(.text-2xl, .text-3xl) {
   font-size: 1.625rem;

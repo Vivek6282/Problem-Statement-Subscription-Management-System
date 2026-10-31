@@ -19,7 +19,8 @@ export interface WorkspaceGroup {
 interface WorkspaceShellProps {
   /** Breadcrumb root, e.g. "Your workspace". */
   rootLabel: string
-  intro: { eyebrow: string; text: string }
+  /** Short intro under the brand. Omitted for long navs so every item stays in view. */
+  intro?: { eyebrow: string; text: string }
   groups: WorkspaceGroup[]
   accountNote: string
   headerActions?: ReactNode
@@ -65,10 +66,14 @@ export function WorkspaceShell({
 
       <aside className="bl-sidebar">
         <BrightloopBrand />
-        <div className="bl-sidebar-intro">
-          <span className="bl-eyebrow">{intro.eyebrow}</span>
-          <p>{intro.text}</p>
-        </div>
+        {intro ? (
+          <div className="bl-sidebar-intro">
+            <span className="bl-eyebrow">{intro.eyebrow}</span>
+            <p>{intro.text}</p>
+          </div>
+        ) : (
+          <div className="bl-sidebar-spacer" />
+        )}
         <nav aria-label="Workspace navigation">
           {groups.map((group, index) => (
             <div className="bl-nav-group" key={group.label ?? index}>

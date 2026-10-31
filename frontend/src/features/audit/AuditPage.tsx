@@ -92,8 +92,9 @@ export const AuditPage: React.FC = () => {
                     <td className="py-3.5 px-4">
                       <Badge variant="info">{ev.action}</Badge>
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-[11px] text-slate-700 font-semibold">
-                      {ev.entity_type}: {ev.entity_id}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <span className="block text-xs text-slate-500">{ev.entity_type}</span>
+                      <span className="block font-medium text-slate-800">{ev.entity_id}</span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-600 max-w-md truncate">
                       {ev.description}

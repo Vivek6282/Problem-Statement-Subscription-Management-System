@@ -27,13 +27,13 @@ export const AccessDeniedPage: React.FC<AccessDeniedProps> = ({ requiredRole }) 
             <ShieldAlert className="w-6 h-6" aria-hidden="true" />
           </div>
           <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Access denied</h1>
-          <p className="text-xs text-slate-500 mt-2">
+          <p className="text-sm text-slate-600 mt-2">
             {requiredRole
               ? `This screen is available to ${requiredRole} only.`
               : 'Your account does not have permission to view this screen.'}
           </p>
           {user?.role && (
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 mt-1.5">
               You are signed in as {user.email} with the {user.role.toLowerCase()} role.
             </p>
           )}

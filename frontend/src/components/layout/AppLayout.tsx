@@ -89,7 +89,6 @@ export const AppLayout: React.FC = () => {
   return (
     <WorkspaceShell
       rootLabel="Staff workspace"
-      intro={{ eyebrow: 'Staff workspace', text: 'Billing, kept in order.' }}
       groups={groups}
       accountNote={`${role} account`}
       headerActions={isStaff ? <RunBillingButton /> : undefined}

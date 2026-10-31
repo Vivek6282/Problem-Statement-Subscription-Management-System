@@ -5,6 +5,13 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 }
 
+// A badge whose whole content is a raw enum value ("BANK_TRANSFER") reads as "Bank transfer".
+// Mixed content such as "SKU: {code}" is left untouched.
+const humanize = (value: React.ReactNode) =>
+  typeof value === 'string' && /^[A-Z][A-Z0-9_ ]+$/.test(value)
+    ? value.charAt(0) + value.slice(1).toLowerCase().replaceAll('_', ' ')
+    : value
+
 export const Badge: React.FC<BadgeProps> = ({
   children,
   className,
@@ -29,7 +36,7 @@ export const Badge: React.FC<BadgeProps> = ({
       )}
       {...props}
     >
-      {children}
+      {humanize(children)}
     </span>
   )
 }
