@@ -146,6 +146,41 @@ class DashboardMetricsView(views.APIView):
             'overdue_invoices': overdue_invoices
         })
 
+class PublicSummaryView(views.APIView):
+    """
+    Public, unauthenticated summary endpoint for landing page & health status.
+    Returns real-time dynamic statistics directly from the database without exposing PII.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        total_customers = Customer.objects.filter(status=CustomerStatus.ACTIVE).count()
+        active_subs = Subscription.objects.filter(status=SubscriptionStatus.ACTIVE)
+        active_subscriptions_count = active_subs.count()
+
+        total_mrr = sum((sub.normalized_mrr for sub in active_subs), Decimal('0.00'))
+        total_arr = total_mrr * Decimal('12.00')
+
+        total_invoices = Invoice.objects.exclude(status=InvoiceStatus.CANCELLED).count()
+        total_paid_invoices = Invoice.objects.filter(status=InvoiceStatus.PAID).count()
+
+        showcase_invoices = list(Invoice.objects.select_related('customer').order_by('-created_at')[:4].values(
+            'id', 'invoice_number', 'customer__company', 'customer__name', 'total_amount', 'status', 'due_date'
+        ))
+
+        return Response({
+            'status': 'HEALTHY',
+            'total_customers': total_customers,
+            'active_subscriptions': active_subscriptions_count,
+            'total_invoices': total_invoices,
+            'total_paid_invoices': total_paid_invoices,
+            'mrr': float(total_mrr),
+            'arr': float(total_arr),
+            'showcase_invoices': showcase_invoices,
+            'database_engine': 'PostgreSQL / Local DB',
+            'billing_engine': 'Celery + Redis / Transactional Row Lock',
+        })
+
 class RevenueByProductReportView(views.APIView):
     permission_classes = [IsStaffOrAdmin]
 

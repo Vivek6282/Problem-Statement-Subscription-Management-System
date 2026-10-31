@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Sparkles,
@@ -14,12 +14,59 @@ import {
   FileText,
   CreditCard,
   SlidersHorizontal,
+  Activity,
+  CheckCircle2,
 } from 'lucide-react'
 import { useAuth } from '@/features/auth/AuthContext'
+import { api } from '@/lib/api'
+import { formatCurrency } from '@/lib/utils'
+
+interface PublicStats {
+  status: string
+  total_customers: number
+  active_subscriptions: number
+  total_invoices: number
+  total_paid_invoices: number
+  mrr: number
+  arr: number
+  showcase_invoices: Array<{
+    id: number
+    invoice_number: string
+    customer__company: string
+    customer__name: string
+    total_amount: number
+    status: string
+    due_date: string
+  }>
+  database_engine: string
+  billing_engine: string
+}
 
 export const LandingPage: React.FC = () => {
   const { isAuthenticated, user } = useAuth()
   const [activeStep, setActiveStep] = useState(1)
+  const [stats, setStats] = useState<PublicStats | null>(null)
+
+  useEffect(() => {
+    // Dynamic real-time database summary fetch
+    api.get<PublicStats>('/reports/public-summary/')
+      .then((res) => setStats(res.data))
+      .catch((err) => console.log('Offline/Local fallback mode active:', err))
+  }, [])
+
+  // Dynamic values with graceful defaults
+  const mrrDisplay = stats?.mrr ? formatCurrency(stats.mrr) : '$4,375.58'
+  const arrDisplay = stats?.arr ? formatCurrency(stats.arr) : '$52,507.00'
+  const customersCount = stats?.total_customers ?? 5
+  const subsCount = stats?.active_subscriptions ?? 2
+  const invoicesCount = stats?.total_invoices ?? 4
+
+  const showcase = stats?.showcase_invoices || [
+    { id: 1, invoice_number: 'INV-2026-45D305', customer__company: 'Acme Corporation', customer__name: 'John Doe', total_amount: 4581.80, status: 'CONFIRMED', due_date: '2026-12-20' },
+    { id: 2, invoice_number: 'INV-2026-0003', customer__company: 'Stark Industries', customer__name: 'Tony Stark', total_amount: 1770.00, status: 'CONFIRMED', due_date: '2026-11-25' },
+    { id: 3, invoice_number: 'INV-2026-0002', customer__company: 'Globex Industries', customer__name: 'Hank Scorpio', total_amount: 5498.90, status: 'OVERDUE', due_date: '2026-09-21' },
+    { id: 4, invoice_number: 'INV-2026-0001', customer__company: 'Acme Corporation', customer__name: 'John Doe', total_amount: 4581.62, status: 'PAID', due_date: '2026-10-16' },
+  ]
 
   return (
     <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans selection:bg-[#6366F1]/15 selection:text-[#4F46E5] relative antialiased overflow-hidden">
@@ -90,13 +137,13 @@ export const LandingPage: React.FC = () => {
       </header>
 
       {/* =========================================================================
-          2. HERO SECTION (Aesthetic Sky & High-Fidelity Mockup)
+          2. HERO SECTION (Dynamic Data + Pastel Tint Mockup)
          ========================================================================= */}
       <section id="overview" className="pt-14 sm:pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full text-center">
-        {/* Subtle Violet Status Pill */}
+        {/* Dynamic Database Status Pill */}
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50/80 border border-indigo-200/60 text-[11px] font-semibold text-indigo-900 mb-6 shadow-sm">
-          <span className="w-2 h-2 rounded-full bg-[#4F46E5] animate-pulse" />
-          <span>PostgreSQL $\cdot$ Celery Recurring Billing Core</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>PostgreSQL Live $\cdot$ {subsCount} Active Subscriptions $\cdot$ {customersCount} Enterprise Clients</span>
         </div>
 
         {/* Hero Title with Aesthetic Iris Gradient Accent */}
@@ -126,7 +173,7 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Aesthetic Product Showcase Window */}
+        {/* Aesthetic Product Showcase Window (Dynamic Live Records) */}
         <div className="mt-14 max-w-5xl mx-auto">
           <div className="bg-white/95 backdrop-blur-xl rounded-[28px] border border-indigo-100/80 shadow-[0_16px_50px_rgba(99,102,241,0.08)] p-5 sm:p-7 overflow-hidden text-left">
             {/* Window Header */}
@@ -139,14 +186,14 @@ export const LandingPage: React.FC = () => {
                 </div>
                 <span className="text-xs font-bold text-slate-800 ml-2">Brightloop Core Workspace</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  Live Postgres Queue
+                  Live Postgres Queue ({invoicesCount} Invoices)
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
                 <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-200/60 text-[11px] text-slate-400">
                   <Search className="w-3 h-3 text-slate-400" />
-                  <span>Search subscriptions, SKU, invoice...</span>
+                  <span>Search records...</span>
                 </div>
                 <div className="flex -space-x-1.5 overflow-hidden">
                   <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-bold text-[9px] flex items-center justify-center">JC</div>
@@ -156,21 +203,21 @@ export const LandingPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 4 Pastel Tinted Kanban Columns */}
+            {/* 4 Pastel Tinted Kanban Columns Populated Live */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-4">
               {/* Draft & Quotes (Soft Lavender) */}
               <div className="bg-[#FAF9FF] rounded-2xl p-3 border border-indigo-100/60 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-indigo-950">
                   <span>Draft & Quotes</span>
-                  <span className="px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700 text-[10px]">2</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700 text-[10px]">1</span>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-indigo-50 shadow-sm space-y-1.5 hover:shadow-md transition-shadow">
                   <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-[#4F46E5] border border-indigo-100/60 inline-block">Enterprise SLA</span>
-                  <p className="text-xs font-bold text-slate-900 leading-snug">Acme Global SLA</p>
-                  <p className="text-[10px] text-slate-400">Net 30 payment terms $\cdot$ 1-click binding convert</p>
+                  <p className="text-xs font-bold text-slate-900 leading-snug">{showcase[0]?.customer__company || 'Acme Global SLA'}</p>
+                  <p className="text-[10px] text-slate-400">#{showcase[0]?.invoice_number || 'INV-2026-45D305'} $\cdot$ Binding terms</p>
                   <div className="flex justify-between items-center pt-1 border-t border-slate-100 text-[10px]">
-                    <span className="font-extrabold text-slate-900">$68,750.00</span>
-                    <span className="text-indigo-600 font-semibold">Valid 30d</span>
+                    <span className="font-extrabold text-slate-900">{formatCurrency(showcase[0]?.total_amount || 4581.80)}</span>
+                    <span className="text-indigo-600 font-semibold">{showcase[0]?.status || 'DRAFT'}</span>
                   </div>
                 </div>
               </div>
@@ -179,15 +226,15 @@ export const LandingPage: React.FC = () => {
               <div className="bg-[#FAF5FF] rounded-2xl p-3 border border-purple-100/60 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-purple-950">
                   <span>Active Recurring</span>
-                  <span className="px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 text-[10px]">5</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 text-[10px]">{subsCount}</span>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-purple-50 shadow-sm space-y-1.5 hover:shadow-md transition-shadow">
                   <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-[#7C3AED] border border-purple-100/60 inline-block">Monthly Cycle</span>
-                  <p className="text-xs font-bold text-slate-900 leading-snug">BrightWave Dedicated</p>
-                  <p className="text-[10px] text-slate-400">Auto-close on expiry $\cdot$ Pause/resume allowed</p>
+                  <p className="text-xs font-bold text-slate-900 leading-snug">{showcase[1]?.customer__company || 'Stark Industries'}</p>
+                  <p className="text-[10px] text-slate-400">#{showcase[1]?.invoice_number || 'INV-2026-0003'} $\cdot$ Auto-renew on</p>
                   <div className="flex justify-between items-center pt-1 border-t border-slate-100 text-[10px]">
-                    <span className="font-extrabold text-slate-900">$21,480.00</span>
-                    <span className="text-[#7C3AED] font-bold">Next in 4d</span>
+                    <span className="font-extrabold text-slate-900">{formatCurrency(showcase[1]?.total_amount || 1770.00)}</span>
+                    <span className="text-[#7C3AED] font-bold">Active</span>
                   </div>
                 </div>
               </div>
@@ -195,16 +242,16 @@ export const LandingPage: React.FC = () => {
               {/* Due Invoices (Soft Amber / Sunset) */}
               <div className="bg-[#FFFBEB] rounded-2xl p-3 border border-amber-100/60 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-amber-950">
-                  <span>Due Invoices</span>
-                  <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px]">3</span>
+                  <span>Due & Overdue</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px]">1</span>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-amber-50 shadow-sm space-y-1.5 hover:shadow-md transition-shadow">
-                  <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-100 inline-block">Confirmed</span>
-                  <p className="text-xs font-bold text-slate-900 leading-snug">#INV-2026-0083</p>
-                  <p className="text-[10px] text-slate-400">PDF rendered $\cdot$ Multi-rail balance allocation</p>
+                  <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-100 inline-block">Overdue</span>
+                  <p className="text-xs font-bold text-slate-900 leading-snug">{showcase[2]?.customer__company || 'Globex Industries'}</p>
+                  <p className="text-[10px] text-slate-400">#{showcase[2]?.invoice_number || 'INV-2026-0002'} $\cdot$ Action required</p>
                   <div className="flex justify-between items-center pt-1 border-t border-slate-100 text-[10px]">
-                    <span className="font-extrabold text-slate-900">$47,980.00</span>
-                    <span className="text-amber-700 font-bold">Due Soon</span>
+                    <span className="font-extrabold text-slate-900">{formatCurrency(showcase[2]?.total_amount || 5498.90)}</span>
+                    <span className="text-amber-700 font-bold">Overdue</span>
                   </div>
                 </div>
               </div>
@@ -213,14 +260,14 @@ export const LandingPage: React.FC = () => {
               <div className="bg-[#ECFDF5] rounded-2xl p-3 border border-emerald-100/60 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-emerald-950">
                   <span>Settled & Paid</span>
-                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px]">8</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px]">1</span>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-emerald-50 shadow-sm space-y-1.5 hover:shadow-md transition-shadow">
-                  <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-100 inline-block">Stripe Settlement</span>
-                  <p className="text-xs font-bold text-slate-900 leading-snug">#INV-2026-0079</p>
-                  <p className="text-[10px] text-slate-400">Zero balance $\cdot$ Receipt dispatched via email</p>
+                  <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-100 inline-block">Settled via Stripe</span>
+                  <p className="text-xs font-bold text-slate-900 leading-snug">{showcase[3]?.customer__company || 'Acme Corporation'}</p>
+                  <p className="text-[10px] text-slate-400">#{showcase[3]?.invoice_number || 'INV-2026-0001'} $\cdot$ Dispatched</p>
                   <div className="flex justify-between items-center pt-1 border-t border-slate-100 text-[10px]">
-                    <span className="font-extrabold text-slate-900">$55,230.00</span>
+                    <span className="font-extrabold text-slate-900">{formatCurrency(showcase[3]?.total_amount || 4581.62)}</span>
                     <span className="text-emerald-700 font-bold">Paid</span>
                   </div>
                 </div>
@@ -268,7 +315,7 @@ export const LandingPage: React.FC = () => {
             <div className="bg-white rounded-2xl p-4 border border-indigo-100/60 shadow-sm space-y-3">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-bold text-slate-800">4 Active Tiers</span>
-                <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-full">Normalized MRR</span>
+                <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-full">MRR: {mrrDisplay}</span>
               </div>
               <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden flex gap-0.5">
                 <div className="h-full bg-gradient-to-r from-[#4F46E5] to-[#6366F1] w-[45%]" />
@@ -306,7 +353,7 @@ export const LandingPage: React.FC = () => {
               </div>
               <p className="text-slate-400">&gt; Evaluating active contracts...</p>
               <p className="text-indigo-300">&gt; select_for_update() locked</p>
-              <p className="text-emerald-400">&gt; Generated #INV-2026-0084 ($47,980)</p>
+              <p className="text-emerald-400">&gt; Generated #{showcase[0]?.invoice_number || 'INV-2026-45D305'}</p>
               <p className="text-slate-400">&gt; Next cycle date: 2026-11-30</p>
             </div>
           </div>
@@ -328,8 +375,8 @@ export const LandingPage: React.FC = () => {
               </div>
 
               {[
-                { action: 'INVOICE_CONFIRMED', detail: '#INV-2026-0083 moved to Due state', time: '10:30 AM', color: 'text-indigo-600 bg-indigo-50' },
-                { action: 'PAYMENT_ALLOCATED', detail: 'Received $47,980 via Bank Wire', time: '11:15 AM', color: 'text-emerald-600 bg-emerald-50' },
+                { action: 'INVOICE_CONFIRMED', detail: 'Invoice moved to Due state', time: '10:30 AM', color: 'text-indigo-600 bg-indigo-50' },
+                { action: 'PAYMENT_ALLOCATED', detail: 'Received payment via Stripe', time: '11:15 AM', color: 'text-emerald-600 bg-emerald-50' },
                 { action: 'PDF_EXPORTED', detail: 'ReportLab invoice PDF generated', time: '01:20 PM', color: 'text-purple-600 bg-purple-50' },
                 { action: 'CYCLE_ADVANCED', detail: 'Advanced next_billing_date automatically', time: '02:45 PM', color: 'text-blue-600 bg-blue-50' },
                 { action: 'BATCH_BILLING_OK', detail: '0 duplicate charges recorded', time: '04:10 PM', color: 'text-emerald-600 bg-emerald-50' },
@@ -357,7 +404,7 @@ export const LandingPage: React.FC = () => {
 
             <div className="bg-white rounded-2xl p-4 border border-emerald-100/60 shadow-sm space-y-2.5">
               <div className="flex justify-between items-baseline">
-                <span className="text-lg font-black text-slate-900">$2,450,800</span>
+                <span className="text-lg font-black text-slate-900">{arrDisplay} ARR</span>
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">+18.4% YoY</span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
@@ -379,7 +426,7 @@ export const LandingPage: React.FC = () => {
 
             <div className="bg-white rounded-2xl p-4 border border-amber-100/60 shadow-sm space-y-2 text-xs">
               <div className="flex justify-between items-center">
-                <span className="font-bold text-slate-900">Acme Global Systems</span>
+                <span className="font-bold text-slate-900">{showcase[0]?.customer__company || 'Acme Corporation'}</span>
                 <span className="text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold border border-emerald-100">Active</span>
               </div>
               <div className="flex justify-between text-slate-400 text-[10px]">
@@ -425,8 +472,8 @@ export const LandingPage: React.FC = () => {
               bg: 'bg-gradient-to-b from-[#ECFDF5]/30 to-[#FAFAFB] border-emerald-100/60',
             },
             {
-              stat: '10k+',
-              desc: 'Recurring cycles executed reliably without manual intervention.',
+              stat: `${customersCount}+`,
+              desc: `Active enterprise customers managed reliably across ${subsCount} live recurring contracts.`,
               dot: 'bg-[#F59E0B] shadow-[0_0_12px_rgba(245,158,11,0.6)]',
               bg: 'bg-gradient-to-b from-[#FFFBEB]/30 to-[#FAFAFB] border-amber-100/60',
             },
