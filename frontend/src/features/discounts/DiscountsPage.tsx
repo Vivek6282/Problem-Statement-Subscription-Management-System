@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Percent, Plus, Edit2, ShieldAlert, CheckCircle, Tag } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, fetchAll, getApiError } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Discount, DiscountType } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -12,11 +12,16 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { MultiSelect } from '@/components/ui/MultiSelect'
 
 export const DiscountsPage: React.FC = () => {
   const { isAdmin } = useAuth()
   const [discounts, setDiscounts] = useState<Discount[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const lastFilterKey = useRef('')
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null)
@@ -31,15 +36,20 @@ export const DiscountsPage: React.FC = () => {
     start_date: new Date().toISOString().split('T')[0],
     end_date: '',
     is_active: true,
+    applicable_products: [] as number[],
+    applicable_plans: [] as number[],
   })
+  const [catalog, setCatalog] = useState<Array<{ id: number; name: string; sku: string }>>([])
+  const [planOptions, setPlanOptions] = useState<Array<{ id: number; name: string }>>([])
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
   const fetchDiscounts = async () => {
     setIsLoading(true)
     try {
-      const res = await api.get('/discounts/')
+      const res = await api.get(`/discounts/?page=${page}`)
       setDiscounts(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -48,8 +58,15 @@ export const DiscountsPage: React.FC = () => {
   }
 
   useEffect(() => {
+    const filterKey = ''
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchDiscounts()
-  }, [])
+  }, [page])
 
   const openCreateModal = () => {
     setEditingDiscount(null)
@@ -64,9 +81,17 @@ export const DiscountsPage: React.FC = () => {
       start_date: new Date().toISOString().split('T')[0],
       end_date: '',
       is_active: true,
+      applicable_products: [],
+      applicable_plans: [],
     })
+    loadCatalog()
     setFormError(null)
     setIsModalOpen(true)
+  }
+
+  const loadCatalog = () => {
+    fetchAll<{ id: number; name: string; sku: string }>('/products/', { is_active: 'true' }).then(setCatalog).catch(() => setCatalog([]))
+    fetchAll<{ id: number; name: string }>('/plans/', { is_active: 'true' }).then(setPlanOptions).catch(() => setPlanOptions([]))
   }
 
   const openEditModal = (d: Discount) => {
@@ -82,7 +107,10 @@ export const DiscountsPage: React.FC = () => {
       start_date: d.start_date,
       end_date: d.end_date || '',
       is_active: d.is_active,
+      applicable_products: d.applicable_products || [],
+      applicable_plans: d.applicable_plans || [],
     })
+    loadCatalog()
     setFormError(null)
     setIsModalOpen(true)
   }
@@ -108,7 +136,7 @@ export const DiscountsPage: React.FC = () => {
       setIsModalOpen(false)
       fetchDiscounts()
     } catch (err: any) {
-      setFormError(err?.response?.data?.code?.[0] || err?.response?.data?.value?.[0] || err?.response?.data?.detail || 'Failed to save discount rule.')
+      setFormError(getApiError(err, 'Failed to save discount rule.'))
     } finally {
       setIsSaving(false)
     }
@@ -209,6 +237,7 @@ export const DiscountsPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
@@ -297,6 +326,34 @@ export const DiscountsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
             />
           </div>
+
+          <Input
+            label="Minimum Quantity"
+            type="number"
+            min="1"
+            value={formData.min_quantity}
+            onChange={(e) => setFormData({ ...formData, min_quantity: parseInt(e.target.value) || 1 })}
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <MultiSelect
+              label="Applicable products"
+              options={catalog.map((c) => ({ value: c.id, label: `${c.name} (${c.sku})` }))}
+              selected={formData.applicable_products}
+              onChange={(v) => setFormData({ ...formData, applicable_products: v })}
+              helperText="Empty = any product line."
+            />
+            <MultiSelect
+              label="Applicable plans (subscription-level)"
+              options={planOptions.map((p) => ({ value: p.id, label: p.name }))}
+              selected={formData.applicable_plans}
+              onChange={(v) => setFormData({ ...formData, applicable_plans: v })}
+              helperText="Empty = subscriptions on any plan."
+            />
+          </div>
+          <p className="text-[11px] text-slate-500 -mt-1">
+            A discount applies automatically to invoices of the subscriptions (or lines) it is attached to, while it is active, within its dates and below its usage limit.
+          </p>
 
           <label className="flex items-center gap-2 cursor-pointer text-xs">
             <input

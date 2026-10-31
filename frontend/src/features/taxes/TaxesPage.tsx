@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Receipt, Plus, Edit2, ShieldAlert } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, fetchAll, getApiError } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import type { TaxRule } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -11,11 +11,16 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { MultiSelect } from '@/components/ui/MultiSelect'
 
 export const TaxesPage: React.FC = () => {
   const { isAdmin } = useAuth()
   const [taxes, setTaxes] = useState<TaxRule[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const lastFilterKey = useRef('')
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTax, setEditingTax] = useState<TaxRule | null>(null)
@@ -25,15 +30,18 @@ export const TaxesPage: React.FC = () => {
     effective_from: new Date().toISOString().split('T')[0],
     effective_to: '',
     is_active: true,
+    applicable_products: [] as number[],
   })
+  const [catalog, setCatalog] = useState<Array<{ id: number; name: string; sku: string }>>([])
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
   const fetchTaxes = async () => {
     setIsLoading(true)
     try {
-      const res = await api.get('/taxes/')
+      const res = await api.get(`/taxes/?page=${page}`)
       setTaxes(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -42,8 +50,15 @@ export const TaxesPage: React.FC = () => {
   }
 
   useEffect(() => {
+    const filterKey = ''
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchTaxes()
-  }, [])
+  }, [page])
 
   const openCreateModal = () => {
     setEditingTax(null)
@@ -53,9 +68,15 @@ export const TaxesPage: React.FC = () => {
       effective_from: new Date().toISOString().split('T')[0],
       effective_to: '',
       is_active: true,
+      applicable_products: [],
     })
+    loadCatalog()
     setFormError(null)
     setIsModalOpen(true)
+  }
+
+  const loadCatalog = () => {
+    fetchAll<{ id: number; name: string; sku: string }>('/products/', { is_active: 'true' }).then(setCatalog).catch(() => setCatalog([]))
   }
 
   const openEditModal = (t: TaxRule) => {
@@ -66,7 +87,9 @@ export const TaxesPage: React.FC = () => {
       effective_from: t.effective_from,
       effective_to: t.effective_to || '',
       is_active: t.is_active,
+      applicable_products: t.applicable_products || [],
     })
+    loadCatalog()
     setFormError(null)
     setIsModalOpen(true)
   }
@@ -90,7 +113,7 @@ export const TaxesPage: React.FC = () => {
       setIsModalOpen(false)
       fetchTaxes()
     } catch (err: any) {
-      setFormError(err?.response?.data?.detail || 'Failed to save tax rule.')
+      setFormError(getApiError(err, 'Failed to save tax rule.'))
     } finally {
       setIsSaving(false)
     }
@@ -178,6 +201,7 @@ export const TaxesPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
@@ -229,6 +253,14 @@ export const TaxesPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, effective_to: e.target.value })}
             />
           </div>
+
+          <MultiSelect
+            label="Applies to products"
+            options={catalog.map((c) => ({ value: c.id, label: `${c.name} (${c.sku})` }))}
+            selected={formData.applicable_products}
+            onChange={(v) => setFormData({ ...formData, applicable_products: v })}
+            helperText="Leave empty to apply this tax to every product and to plan fees."
+          />
 
           <label className="flex items-center gap-2 cursor-pointer text-xs">
             <input
