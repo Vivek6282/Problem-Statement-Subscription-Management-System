@@ -142,6 +142,35 @@ export interface SubscriptionItem {
   line_subtotal: string | number;
 }
 
+export interface PricingLine {
+  item: number | null;
+  name: string;
+  variant: string;
+  quantity: number;
+  unit_price: string;
+  discount: string;
+  tax: string;
+  tax_breakdown: Array<{ name: string; rate: string; amount: string }>;
+  line_total: string;
+}
+
+export interface SubscriptionPricing {
+  subtotal: string;
+  discount_total: string;
+  tax_total: string;
+  total: string;
+  applied_discounts: Array<{ id?: number; code: string; name: string; amount: string }>;
+  lines: PricingLine[];
+}
+
+export interface HistoryEvent {
+  id: number;
+  action: string;
+  description: string;
+  user: string;
+  created_at: string;
+}
+
 export interface Subscription {
   id: number;
   subscription_number: string;
@@ -157,6 +186,9 @@ export interface Subscription {
   payment_terms: PaymentTerms;
   auto_renew: boolean;
   notes: string;
+  discount?: number | null;
+  discount_details?: { id: number; code: string; name: string; discount_type: DiscountType; value: string; end_date: string | null } | null;
+  pricing?: SubscriptionPricing;
   recurring_subtotal: string | number;
   normalized_mrr: string | number;
   created_at: string;
@@ -175,6 +207,7 @@ export interface InvoiceItem {
   unit_price: string | number;
   discount_amount: string | number;
   tax_amount: string | number;
+  tax_breakdown?: Array<{ name: string; rate: string; amount: string }>;
   line_total: string | number;
 }
 
@@ -196,6 +229,10 @@ export interface Invoice {
   paid_amount: string | number;
   balance_due: string | number;
   is_overdue: boolean;
+  subscription_number?: string;
+  applied_discounts?: Array<{ id?: number; code: string; name: string; amount: string }>;
+  tax_summary?: Array<{ name: string; rate: string; amount: string }>;
+  sent_at?: string | null;
   notes: string;
   items?: InvoiceItem[];
   created_at: string;
@@ -217,6 +254,9 @@ export interface Payment {
   payment_date: string;
   transaction_reference: string;
   notes: string;
+  status?: 'COMPLETED' | 'REVERSED';
+  reversed_at?: string | null;
+  reversal_reason?: string;
   created_at: string;
 }
 
@@ -232,9 +272,34 @@ export interface QuotationItem {
   description: string;
   quantity: number;
   unit_price: string | number;
+  discount?: number | null;
   discount_amount: string | number;
   tax_percentage: string | number;
+  tax_amount?: string | number;
   line_total: string | number;
+}
+
+export interface QuotationTemplateItem {
+  id?: number;
+  product: number;
+  product_name?: string;
+  variant: number | null;
+  variant_name?: string;
+  quantity: number;
+  description?: string;
+}
+
+export interface QuotationTemplate {
+  id: number;
+  name: string;
+  description: string;
+  plan: number | null;
+  plan_name?: string;
+  validity_days: number;
+  payment_terms: PaymentTerms;
+  discount: number | null;
+  is_active: boolean;
+  items: QuotationTemplateItem[];
 }
 
 export interface Quotation {
@@ -245,6 +310,12 @@ export interface Quotation {
   plan: number | null;
   plan_details?: Plan;
   validity_days: number;
+  payment_terms?: PaymentTerms;
+  discount?: number | null;
+  template?: number | null;
+  template_name?: string;
+  subscription_number?: string;
+  subscription_status?: string;
   issue_date: string;
   expiry_date: string | null;
   status: QuotationStatus;
@@ -274,14 +345,21 @@ export interface AuditEvent {
 }
 
 export interface DashboardMetrics {
+  filters?: Record<string, string | number | null>;
   metrics: {
     total_customers: number;
     active_subscriptions: number;
+    total_subscriptions?: number;
+    filtered_subscriptions?: number;
     mrr: number;
     arr: number;
+    revenue_received?: number;
     revenue_this_month: number;
+    invoiced_total?: number;
+    total_invoices?: number;
     outstanding_balance: number;
     overdue_count: number;
+    overdue_amount?: number;
     upcoming_renewals_count: number;
   };
   revenue_trend: Array<{
@@ -293,6 +371,8 @@ export interface DashboardMetrics {
     name: string;
     count: number;
   }>;
+  invoice_status_summary?: Array<{ status: string; count: number; total: number }>;
+  payment_summary?: Array<{ method: string; total_amount: number; count: number }>;
   recent_subscriptions: any[];
   recent_invoices: any[];
   recent_payments: any[];
