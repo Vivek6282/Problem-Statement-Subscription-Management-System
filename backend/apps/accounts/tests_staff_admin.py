@@ -93,7 +93,8 @@ class StaffAdminManagementTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.staff.refresh_from_db()
         self.assertEqual(self.staff.role, Role.ADMIN)
-        self.assertTrue(self.staff.is_superuser)
+        # ADMIN is an application role, not a Django superuser.
+        self.assertFalse(self.staff.is_superuser)
 
         # Audit event
         event = AuditEvent.objects.filter(action='USER_ROLE_CHANGED', entity_id=str(self.staff.id)).first()

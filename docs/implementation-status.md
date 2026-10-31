@@ -96,3 +96,15 @@ Key Test Modules:
 - **Member 3 (Billing & Subscription Lifecycle):** When generating invoices from active subscriptions, reference `subscription.normalized_mrr` or `plan.billing_interval`. The SQL MRR formulas in `apps/reports` will automatically pick up any active subscription updates immediately.
 - **Member 4 (Auth & Portal):** The `UserSerializer` now exposes `is_superuser` and `last_login`. Customers continue to be segmented through `CustomerAccessPolicyPermission` and cannot access internal staff/catalog administration endpoints.
 
+
+## For Member 4 review
+
+Member 1 touched these files in your area (`apps/accounts`) with minimal diffs:
+
+- `backend/apps/accounts/serializers.py` — `StaffCreateSerializer.create` no longer sets `is_superuser` from the role. New ADMIN accounts are `is_staff=True`, `is_superuser=False`. Email was already case-insensitively unique and lowercased; a test now covers it.
+- `backend/apps/accounts/views.py`
+  - Role change: promoting to ADMIN leaves `is_superuser` unchanged; demoting to STAFF sets it to `False` (otherwise a demoted superuser still passes `User.is_admin_user`).
+  - `PATCH`/`PUT` on `/api/v1/auth/users/<id>/` already ran the self-demotion, self-deactivation and last-admin checks (same code path as the `deactivate` action); no path skipped them. Added: a CUSTOMER target returns 400 instead of 404, and `role=CUSTOMER` is rejected (it already was, by the serializer).
+  - `_invalidate_user_sessions` only ever deleted the target's sessions, but it scanned every session (including expired) and hid all errors. It now scans unexpired sessions, skips undecodable ones with a log line, and deletes only sessions whose `_auth_user_id` equals the target.
+  - DELETE is still disabled (405).
+- Tests: `backend/apps/accounts/tests_staff_safety.py` (new) and one assertion changed in `tests_staff_admin.py` (promotion no longer makes a superuser).

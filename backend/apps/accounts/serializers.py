@@ -100,13 +100,11 @@ class StaffCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password')
         role = validated_data.get('role', Role.STAFF)
-        is_staff = True if role in [Role.ADMIN, Role.STAFF] else False
-        is_superuser = True if role == Role.ADMIN else False
-
+        # The application ADMIN role is not a Django superuser: it never gets is_superuser.
         user = User.objects.create_user(
             password=password,
-            is_staff=is_staff,
-            is_superuser=is_superuser,
+            is_staff=role in [Role.ADMIN, Role.STAFF],
+            is_superuser=False,
             **validated_data
         )
         return user

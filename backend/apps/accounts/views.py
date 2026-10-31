@@ -1,3 +1,4 @@
+import logging
 from django.contrib.auth import login, logout
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -26,22 +27,26 @@ from .serializers import (
 )
 from .permissions import IsAdminUserOnly
 
+logger = logging.getLogger(__name__)
+
 
 def _invalidate_user_sessions(user):
     """
-    Terminates all active sessions belonging to the specified user upon deactivation.
+    Terminates the target user's active sessions (and only theirs) upon deactivation.
+    A session that cannot be decoded cannot belong to a verifiable user, so it is left alone.
     """
     from django.contrib.sessions.models import Session
-    try:
-        for s in Session.objects.all():
-            try:
-                decoded = s.get_decoded()
-                if str(decoded.get('_auth_user_id')) == str(user.id):
-                    s.delete()
-            except Exception:
-                pass
-    except Exception:
-        pass
+    from django.utils import timezone
+
+    target_id = str(user.pk)
+    for session in Session.objects.filter(expire_date__gt=timezone.now()).iterator():
+        try:
+            owner = session.get_decoded().get('_auth_user_id')
+        except Exception:
+            logger.warning('Skipped undecodable session while invalidating sessions for user %s', target_id)
+            continue
+        if owner is not None and str(owner) == target_id:
+            session.delete()
 
 
 class CSRFView(views.APIView):
@@ -261,6 +266,10 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
+
+        # Customer accounts are outside this endpoint's queryset; answer 400 rather than a bare 404.
+        if User.objects.filter(pk=kwargs.get('pk'), role=Role.CUSTOMER).exists():
+            raise ValidationError({'role': 'Customer accounts cannot be modified via staff management.'})
         target = self.get_object()
 
         # Reject modifying customer accounts through staff management
@@ -299,8 +308,11 @@ class UserViewSet(viewsets.ModelViewSet):
 
         # Role change synchronization & audit
         if target.role != old_role:
+            # ADMIN does not imply Django superuser. Promoting leaves is_superuser untouched; demoting
+            # to STAFF clears it, otherwise a demoted superuser would still pass User.is_admin_user.
             target.is_staff = True
-            target.is_superuser = (target.role == Role.ADMIN)
+            if target.role != Role.ADMIN:
+                target.is_superuser = False
             target.save(update_fields=['is_staff', 'is_superuser'])
             AuditEvent.log_event(
                 action='USER_ROLE_CHANGED',
