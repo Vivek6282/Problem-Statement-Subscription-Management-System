@@ -5,6 +5,7 @@ import { AuthLayout } from './AuthLayout'
 import { useAuth } from './AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { formatApiError } from '@/lib/apiErrors'
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth()
@@ -44,16 +45,9 @@ export const RegisterPage: React.FC = () => {
       await register(formData)
       navigate('/portal')
     } catch (err: any) {
-      const resp = err?.response?.data
-      if (resp) {
-        const firstErrKey = Object.keys(resp)[0]
-        const errVal = Array.isArray(resp[firstErrKey])
-          ? resp[firstErrKey][0]
-          : resp[firstErrKey]
-        setError(`${firstErrKey}: ${errVal}`)
-      } else {
-        setError('Registration failed. Please check the details and try again.')
-      }
+      setError(
+        formatApiError(err, 'Registration failed. Please check the details and try again.'),
+      )
     } finally {
       setIsLoading(false)
     }

@@ -67,7 +67,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: user?.role === 'ADMIN' || !!user?.is_staff,
+    // Staff accounts also carry is_staff=true, so only the role identifies an admin.
+    isAdmin: user?.role === 'ADMIN',
     isStaff: user?.role === 'STAFF' || user?.role === 'ADMIN',
     isCustomer: user?.role === 'CUSTOMER',
     login,

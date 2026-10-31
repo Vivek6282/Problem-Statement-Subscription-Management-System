@@ -26,6 +26,8 @@ import { ReportsPage } from '@/features/reports/ReportsPage'
 import { AuditPage } from '@/features/audit/AuditPage'
 import { CustomerPortalPage } from '@/features/portal/CustomerPortalPage'
 import { LandingPage } from '@/features/landing/LandingPage'
+import { TeamPage } from '@/features/team/TeamPage'
+import { AccessDeniedPage } from '@/features/auth/AccessDeniedPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,6 +66,8 @@ export const App: React.FC = () => {
               <Route path="/audit" element={<AuditPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/portal" element={<CustomerPortalPage />} />
+              <Route path="/team" element={<TeamPage />} />
+              <Route path="/access-denied" element={<AccessDeniedPage />} />
             </Route>
 
             {/* Fallback */}

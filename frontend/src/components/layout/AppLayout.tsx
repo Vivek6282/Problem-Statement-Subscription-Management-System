@@ -51,7 +51,7 @@ function RunBillingButton() {
 }
 
 export const AppLayout: React.FC = () => {
-  const { isAuthenticated, isLoading, user, isStaff } = useAuth()
+  const { isAuthenticated, isLoading, user, isStaff, isAdmin } = useAuth()
 
   if (isLoading) {
     return (
@@ -78,7 +78,9 @@ export const AppLayout: React.FC = () => {
   const groups = navGroups
     .map((group) => ({
       label: group.label,
-      items: group.items.filter((item) => !item.staffOnly || isStaff),
+      items: group.items.filter(
+        (item) => (!item.staffOnly || isStaff) && (!item.adminOnly || isAdmin),
+      ),
     }))
     .filter((group) => group.items.length > 0)
 

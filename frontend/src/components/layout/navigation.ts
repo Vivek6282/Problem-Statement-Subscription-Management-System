@@ -10,6 +10,7 @@ import {
   Receipt,
   Repeat,
   ShieldCheck,
+  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -19,6 +20,7 @@ export interface NavItem {
   path: string
   icon: LucideIcon
   staffOnly?: boolean
+  adminOnly?: boolean
 }
 
 export interface NavGroup {
@@ -57,6 +59,12 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: 'Reports', icon: BarChart3, path: '/reports', staffOnly: true },
       { label: 'Audit Trail', icon: ShieldCheck, path: '/audit', staffOnly: true },
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      { label: 'Team & Access', icon: UserCog, path: '/team', adminOnly: true },
     ],
   },
 ]
