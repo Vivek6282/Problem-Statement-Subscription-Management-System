@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   CreditCard,
   Plus,
@@ -11,8 +11,9 @@ import {
   DollarSign,
   AlertCircle,
   Eye,
+  Undo2,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, fetchAll, getApiError } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Payment, Invoice, Customer, PaymentMethodType } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -24,11 +25,20 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { TableControls } from '@/components/ui/TableControls'
 
 export const PaymentsPage: React.FC = () => {
-  const { isStaff } = useAuth()
+  const { isStaff, isAdmin } = useAuth()
+  const [notice, setNotice] = useState<string | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const [ordering, setOrdering] = useState('-payment_date')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
   const [methodFilter, setMethodFilter] = useState<string>('ALL')
 
@@ -56,10 +66,15 @@ export const PaymentsPage: React.FC = () => {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (methodFilter !== 'ALL') params.append('payment_method', methodFilter)
+      params.append('page', String(page))
+      if (ordering) params.append('ordering', ordering)
+      if (dateFrom) params.append('payment_date__gte', dateFrom)
+      if (dateTo) params.append('payment_date__lte', dateTo)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
       setPayments(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -69,27 +84,42 @@ export const PaymentsPage: React.FC = () => {
 
   const loadOpenInvoices = async () => {
     try {
-      const res = await api.get('/invoices/?status=CONFIRMED')
-      const overdueRes = await api.get('/invoices/?status=OVERDUE')
-      const partialRes = await api.get('/invoices/?status=PARTIALLY_PAID')
-
-      const combined = [
-        ...(res.data.results || res.data),
-        ...(overdueRes.data.results || overdueRes.data),
-        ...(partialRes.data.results || partialRes.data),
-      ]
-      setOpenInvoices(combined)
+      const groups = await Promise.all(
+        ['CONFIRMED', 'OVERDUE', 'PARTIALLY_PAID'].map((status) => fetchAll<Invoice>('/invoices/', { status }))
+      )
+      setOpenInvoices(groups.flat())
     } catch (err) {
       console.error(err)
     }
   }
 
-  useEffect(() => {
-    fetchPayments()
-  }, [search, methodFilter])
+  const handleReverse = async (p: Payment) => {
+    if (!confirm(`Reverse payment ${p.payment_number} (${formatCurrency(p.amount)})? The invoice balance will be restored. The payment stays on record as reversed.`)) return
+    const reason = window.prompt('Reason for reversal (optional):') ?? ''
+    try {
+      await api.post(`/payments/${p.id}/reverse/`, { reason })
+      setNotice(`Payment ${p.payment_number} reversed; invoice balance restored.`)
+      setDetailPay(null)
+      fetchPayments()
+    } catch (err) {
+      setNotice(`Error: ${getApiError(err)}`)
+    }
+    setTimeout(() => setNotice(null), 6000)
+  }
 
-  const openCreateModal = () => {
-    loadOpenInvoices()
+  useEffect(() => {
+    const filterKey = String(search) + '|' + String(methodFilter) + '|' + String(ordering) + '|' + String(dateFrom) + '|' + String(dateTo)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
+    fetchPayments()
+  }, [search, methodFilter, ordering, dateFrom, dateTo, page])
+
+  const openCreateModal = async () => {
+    await loadOpenInvoices()
     setFormPay({
       invoice: '',
       amount: '',
@@ -128,8 +158,7 @@ export const PaymentsPage: React.FC = () => {
       setIsModalOpen(false)
       fetchPayments()
     } catch (err: any) {
-      const resp = err?.response?.data
-      setFormError(resp?.non_field_errors?.[0] || resp?.amount?.[0] || resp?.detail || 'Failed to record payment.')
+      setFormError(getApiError(err, 'Failed to record payment.'))
     } finally {
       setIsSaving(false)
     }
@@ -149,6 +178,13 @@ export const PaymentsPage: React.FC = () => {
           </Button>
         )}
       </div>
+
+      {notice && (
+        <div className="p-3 bg-navy-950 text-white rounded-xl text-xs font-semibold flex items-center justify-between border border-slate-700">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} className="text-slate-400 hover:text-white">✕</button>
+        </div>
+      )}
 
       {/* Filter and Search */}
       <Card>
@@ -179,6 +215,18 @@ export const PaymentsPage: React.FC = () => {
             </select>
           </div>
         </CardContent>
+        <CardContent className="px-4 pb-4 pt-3 border-t border-slate-100">
+          <TableControls
+            orderingOptions={[{ label: 'Newest first', value: '-payment_date' }, { label: 'Oldest first', value: 'payment_date' }, { label: 'Largest amount', value: '-amount' }]}
+            ordering={ordering}
+            onOrderingChange={setOrdering}
+            dateLabel="Paid on"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+          />
+        </CardContent>
       </Card>
 
       {/* Payments Table */}
@@ -208,6 +256,7 @@ export const PaymentsPage: React.FC = () => {
                   <th className="py-3 px-4">Method</th>
                   <th className="py-3 px-4">External Reference</th>
                   <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">View</th>
                 </tr>
               </thead>
@@ -233,8 +282,11 @@ export const PaymentsPage: React.FC = () => {
                     <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500">
                       {p.transaction_reference || '-'}
                     </td>
-                    <td className="py-3.5 px-4 font-black text-green-700 text-sm">
+                    <td className={`py-3.5 px-4 font-black text-sm ${p.status === 'REVERSED' ? 'text-slate-400 line-through' : 'text-green-700'}`}>
                       {formatCurrency(p.amount)}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {p.status === 'REVERSED' ? <Badge variant="danger">Reversed</Badge> : <Badge variant="success">Cleared</Badge>}
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
@@ -250,6 +302,7 @@ export const PaymentsPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
@@ -268,8 +321,13 @@ export const PaymentsPage: React.FC = () => {
                 <span className="text-slate-500">Payment Amount</span>
                 <p className="text-2xl font-black text-green-700">{formatCurrency(detailPay.amount)}</p>
               </div>
-              <Badge variant="success">Cleared</Badge>
+              {detailPay.status === 'REVERSED' ? <Badge variant="danger">Reversed</Badge> : <Badge variant="success">Cleared</Badge>}
             </div>
+            {detailPay.status === 'REVERSED' && (
+              <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-700">
+                Reversed on {formatDate(detailPay.reversed_at)}{detailPay.reversal_reason ? ` — ${detailPay.reversal_reason}` : ''}. It no longer counts as revenue.
+              </div>
+            )}
 
             <div className="space-y-2 text-slate-700">
               <div className="flex justify-between py-1 border-b border-slate-100">
@@ -289,6 +347,12 @@ export const PaymentsPage: React.FC = () => {
                 <span className="font-mono font-semibold">{detailPay.transaction_reference || 'N/A'}</span>
               </div>
             </div>
+
+            {isAdmin && detailPay.status !== 'REVERSED' && (
+              <Button variant="outline" size="sm" onClick={() => handleReverse(detailPay)}>
+                <Undo2 className="w-3.5 h-3.5 mr-1" /> Reverse Payment
+              </Button>
+            )}
 
             {detailPay.notes && (
               <div className="p-3 bg-slate-50 rounded-lg">
