@@ -8,6 +8,8 @@ from django.conf import settings
 from rest_framework import status, views, viewsets, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.throttling import ScopedRateThrottle
+import logging
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from .models import User, Role
@@ -22,6 +24,8 @@ from .serializers import (
     ProfileUpdateSerializer,
 )
 from .permissions import IsAdminUserOnly
+
+logger = logging.getLogger(__name__)
 
 class CSRFView(views.APIView):
     """
@@ -45,6 +49,8 @@ class RegisterView(views.APIView):
     Public registration endpoint. Always assigns CUSTOMER role.
     Creates a linked Customer record and logs the user in with a session.
     """
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(
@@ -66,6 +72,8 @@ class LoginView(views.APIView):
     """
     Session-based login with HttpOnly session cookies.
     """
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(
@@ -132,6 +140,8 @@ class PasswordResetRequestView(views.APIView):
     """
     Requests a password reset token sent via email.
     """
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(request=PasswordResetRequestSerializer, summary="Request Password Reset")
@@ -144,16 +154,24 @@ class PasswordResetRequestView(views.APIView):
         if user:
             token = default_token_generator.make_token(user)
             uid = urlsafe_base64_encode(force_bytes(user.pk))
-            reset_url = f"{request.headers.get('origin', 'http://localhost:5173')}/reset-password?uid={uid}&token={token}"
-            
-            # Send notification email
-            send_mail(
-                subject="Brightloop — Password Reset Request",
-                message=f"Hello {user.first_name or 'there'},\n\nClick the link below to reset your password:\n{reset_url}\n\nIf you did not request this, please ignore this email.",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=True,
-            )
+            reset_url = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
+            timeout_minutes = max(1, settings.PASSWORD_RESET_TIMEOUT // 60)
+
+            try:
+                send_mail(
+                    subject="Brightloop — Password Reset Request",
+                    message=(
+                        f"Hello {user.first_name or 'there'},\n\n"
+                        f"Use the link below to reset your password. It expires in {timeout_minutes} minutes.\n"
+                        f"{reset_url}\n\nIf you did not request this, you can ignore this email."
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception:
+                # The response stays generic (no account enumeration) but the failure is never hidden from operators.
+                logger.exception("Password reset email could not be delivered to user id %s", user.pk)
 
         # Always return generic message to prevent user enumeration
         return Response({
@@ -164,6 +182,8 @@ class PasswordResetConfirmView(views.APIView):
     """
     Verifies reset token and assigns new password.
     """
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(request=PasswordResetConfirmSerializer, summary="Confirm Password Reset")
