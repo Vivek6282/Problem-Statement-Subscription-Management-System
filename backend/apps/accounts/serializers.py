@@ -12,10 +12,10 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'phone',
-            'role', 'is_active', 'is_staff', 'date_joined',
+            'role', 'is_active', 'is_staff', 'is_superuser', 'date_joined',
             'full_name', 'customer_id'
         ]
-        read_only_fields = ['id', 'date_joined', 'is_staff', 'customer_id']
+        read_only_fields = ['id', 'date_joined', 'is_staff', 'is_superuser', 'customer_id']
 
     def get_customer_id(self, obj):
         profile = getattr(obj, 'customer_profile', None)
@@ -146,4 +146,3 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['first_name', 'last_name', 'phone']
-

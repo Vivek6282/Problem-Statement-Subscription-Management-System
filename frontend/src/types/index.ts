@@ -9,6 +9,7 @@ export interface User {
   role: Role;
   is_active: boolean;
   is_staff: boolean;
+  is_superuser?: boolean;
   date_joined: string;
   full_name: string;
   customer_id?: number | null;

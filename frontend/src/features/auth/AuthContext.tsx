@@ -67,8 +67,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: user?.role === 'ADMIN' || !!user?.is_staff,
-    isStaff: user?.role === 'STAFF' || user?.role === 'ADMIN',
+    isAdmin: user?.role === 'ADMIN' || !!user?.is_superuser,
+    isStaff: user?.role === 'STAFF' || user?.role === 'ADMIN' || !!user?.is_staff || !!user?.is_superuser,
     isCustomer: user?.role === 'CUSTOMER',
     login,
     register,
@@ -86,4 +86,3 @@ export const useAuth = () => {
   }
   return context
 }
-

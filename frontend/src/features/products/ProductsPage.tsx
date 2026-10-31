@@ -10,6 +10,8 @@ import {
   DollarSign,
   AlertCircle,
   Tag,
+  Archive,
+  CheckCircle2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
@@ -30,6 +32,7 @@ export const ProductsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('ALL')
+  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null)
 
   // Product Modal
   const [isProdModalOpen, setIsProdModalOpen] = useState(false)
@@ -44,6 +47,7 @@ export const ProductsPage: React.FC = () => {
     notes: '',
   })
   const [prodError, setProdError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [isSavingProd, setIsSavingProd] = useState(false)
 
   // Variant Modal
@@ -56,6 +60,10 @@ export const ProductsPage: React.FC = () => {
   })
   const [variantError, setVariantError] = useState<string | null>(null)
   const [isSavingVariant, setIsSavingVariant] = useState(false)
+
+  // Deletion / Archival Confirmation Modal
+  const [itemToDelete, setItemToDelete] = useState<{ type: 'product' | 'variant'; id: number; name: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchProducts = async () => {
     setIsLoading(true)
@@ -91,6 +99,7 @@ export const ProductsPage: React.FC = () => {
       notes: '',
     })
     setProdError(null)
+    setFieldErrors({})
     setIsProdModalOpen(true)
   }
 
@@ -102,10 +111,11 @@ export const ProductsPage: React.FC = () => {
       product_type: p.product_type,
       sales_price: String(p.sales_price),
       cost_price: String(p.cost_price),
-      description: p.description,
-      notes: p.notes,
+      description: p.description || '',
+      notes: p.notes || '',
     })
     setProdError(null)
+    setFieldErrors({})
     setIsProdModalOpen(true)
   }
 
@@ -113,21 +123,26 @@ export const ProductsPage: React.FC = () => {
     e.preventDefault()
     setIsSavingProd(true)
     setProdError(null)
+    setFieldErrors({})
     try {
       if (editingProduct) {
         await api.patch(`/products/${editingProduct.id}/`, prodForm)
+        setFeedbackMessage({ text: `Product '${prodForm.name}' updated successfully.`, type: 'success' })
       } else {
         await api.post('/products/', prodForm)
+        setFeedbackMessage({ text: `Product '${prodForm.name}' created successfully.`, type: 'success' })
       }
       setIsProdModalOpen(false)
       fetchProducts()
     } catch (err: any) {
-      setProdError(
-        err?.response?.data?.sales_price?.[0] ||
-        err?.response?.data?.sku?.[0] ||
-        err?.response?.data?.detail ||
-        'Failed to save product.'
-      )
+      const data = err?.response?.data || {}
+      const errors: Record<string, string> = {}
+      if (data.sales_price) errors.sales_price = Array.isArray(data.sales_price) ? data.sales_price[0] : data.sales_price
+      if (data.cost_price) errors.cost_price = Array.isArray(data.cost_price) ? data.cost_price[0] : data.cost_price
+      if (data.sku) errors.sku = Array.isArray(data.sku) ? data.sku[0] : data.sku
+      if (data.name) errors.name = Array.isArray(data.name) ? data.name[0] : data.name
+      setFieldErrors(errors)
+      setProdError(data.detail || Object.values(errors)[0] || 'Failed to save product.')
     } finally {
       setIsSavingProd(false)
     }
@@ -154,12 +169,39 @@ export const ProductsPage: React.FC = () => {
         product: selectedProductForVariants.id,
         ...variantForm,
       })
+      setFeedbackMessage({ text: `Variant '${variantForm.name}' added successfully.`, type: 'success' })
       setIsVariantModalOpen(false)
       fetchProducts()
     } catch (err: any) {
-      setVariantError(err?.response?.data?.price_adjustment?.[0] || err?.response?.data?.detail || 'Failed to add variant.')
+      const data = err?.response?.data || {}
+      setVariantError(data.price_adjustment?.[0] || data.name?.[0] || data.detail || 'Failed to add variant.')
     } finally {
       setIsSavingVariant(false)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return
+    setIsDeleting(true)
+    try {
+      const endpoint = itemToDelete.type === 'product'
+        ? `/products/${itemToDelete.id}/`
+        : `/products/variants/${itemToDelete.id}/`
+      const res = await api.delete(endpoint)
+      if (res.data?.archived) {
+        setFeedbackMessage({
+          text: res.data.message || `${itemToDelete.name} is in use by existing records; it has been deactivated/archived.`,
+          type: 'info'
+        })
+      } else {
+        setFeedbackMessage({ text: `${itemToDelete.name} deleted successfully.`, type: 'success' })
+      }
+      setItemToDelete(null)
+      fetchProducts()
+    } catch (err: any) {
+      setFeedbackMessage({ text: err?.response?.data?.detail || 'Failed to remove record.', type: 'error' })
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -171,22 +213,47 @@ export const ProductsPage: React.FC = () => {
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Product & Catalog Management</h1>
           <p className="text-xs text-slate-500 mt-1">Configure base items, SKUs, and variant pricing adjustments</p>
         </div>
-        <Button onClick={openCreateProduct}>
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add Product
-        </Button>
+        {isAdmin && (
+          <Button onClick={openCreateProduct}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Product
+          </Button>
+        )}
       </div>
 
       {/* Pricing policy banner */}
       <div className="p-3 bg-blue-50/60 border border-blue-200/60 rounded-xl flex items-center justify-between text-xs text-blue-900">
         <div className="flex items-center gap-2">
           <Tag className="w-4 h-4 text-primary" />
-          <span><b>Pricing Authorization:</b> Base prices and variant adjustments require Administrator permissions.</span>
+          <span><b>Catalog Authorization:</b> Creating items, editing prices, and archiving require Administrator role.</span>
         </div>
-        <Badge variant={isAdmin ? 'danger' : 'neutral'}>
-          {isAdmin ? 'Admin Pricing Access' : 'View Only Mode'}
+        <Badge variant={isAdmin ? 'success' : 'neutral'}>
+          {isAdmin ? 'Administrator Access' : 'Staff Read-Only'}
         </Badge>
       </div>
+
+      {/* Feedback banner */}
+      {feedbackMessage && (
+        <div className={`p-3.5 rounded-xl text-xs flex items-center justify-between border ${
+          feedbackMessage.type === 'success'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : feedbackMessage.type === 'info'
+            ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : 'bg-rose-50 text-rose-800 border-rose-200'
+        }`}>
+          <div className="flex items-center gap-2">
+            {feedbackMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <Archive className="w-4 h-4 text-amber-600" />
+            )}
+            <span>{feedbackMessage.text}</span>
+          </div>
+          <button onClick={() => setFeedbackMessage(null)} className="text-[11px] underline font-semibold ml-4">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <Card>
@@ -228,9 +295,9 @@ export const ProductsPage: React.FC = () => {
       ) : products.length === 0 ? (
         <EmptyState
           title="No Products in Catalog"
-          description="Create your first billable product or subscription add-on."
-          actionLabel="Create Product"
-          onAction={openCreateProduct}
+          description={isAdmin ? "Create your first billable product or subscription add-on." : "No products are currently available."}
+          actionLabel={isAdmin ? "Create Product" : undefined}
+          onAction={isAdmin ? openCreateProduct : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4">
@@ -242,6 +309,9 @@ export const ProductsPage: React.FC = () => {
                     <div className="flex items-center gap-2.5">
                       <h3 className="font-bold text-slate-900 text-base">{p.name}</h3>
                       <Badge variant="info">{p.product_type}</Badge>
+                      <Badge variant={p.is_active ? 'success' : 'neutral'}>
+                        {p.is_active ? 'Active' : 'Archived'}
+                      </Badge>
                       <span className="font-mono text-xs text-slate-500 font-semibold">SKU: {p.sku}</span>
                     </div>
                     {p.description && <p className="text-xs text-slate-500 max-w-2xl">{p.description}</p>}
@@ -263,13 +333,24 @@ export const ProductsPage: React.FC = () => {
                         <Layers className="w-3.5 h-3.5 mr-1" />
                         Variants ({p.variants?.length || 0})
                       </Button>
-                      <button
-                        onClick={() => openEditProduct(p)}
-                        className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                        title="Edit Product"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      {isAdmin && (
+                        <>
+                          <button
+                            onClick={() => openEditProduct(p)}
+                            className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                            title="Edit Product"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setItemToDelete({ type: 'product', id: p.id, name: p.name })}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Delete or Archive Product"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -287,14 +368,28 @@ export const ProductsPage: React.FC = () => {
                           className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-lg flex items-center justify-between text-xs"
                         >
                           <div>
-                            <span className="font-bold text-slate-800">{v.name}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-800">{v.name}</span>
+                              {!v.is_active && <Badge variant="neutral">Archived</Badge>}
+                            </div>
                             <div className="text-[10px] font-mono text-slate-400">{v.effective_sku}</div>
                           </div>
-                          <div className="text-right">
-                            <span className="font-bold text-primary">{formatCurrency(v.final_unit_price)}</span>
-                            <div className="text-[10px] text-slate-400">
-                              (+{formatCurrency(v.price_adjustment)})
+                          <div className="flex items-center gap-2">
+                            <div className="text-right">
+                              <span className="font-bold text-primary">{formatCurrency(v.final_unit_price)}</span>
+                              <div className="text-[10px] text-slate-400">
+                                (+{formatCurrency(v.price_adjustment)})
+                              </div>
                             </div>
+                            {isAdmin && (
+                              <button
+                                onClick={() => setItemToDelete({ type: 'variant', id: v.id, name: `${p.name} - ${v.name}` })}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                                title="Delete or Archive Variant"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -324,13 +419,16 @@ export const ProductsPage: React.FC = () => {
           )}
 
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Product SKU"
-              required
-              value={prodForm.sku}
-              onChange={(e) => setProdForm({ ...prodForm, sku: e.target.value })}
-              placeholder="e.g. PROD-ERP-CORE"
-            />
+            <div>
+              <Input
+                label="Product SKU"
+                required
+                value={prodForm.sku}
+                onChange={(e) => setProdForm({ ...prodForm, sku: e.target.value })}
+                placeholder="e.g. PROD-ERP-CORE"
+              />
+              {fieldErrors.sku && <p className="text-[11px] text-rose-600 mt-1 font-medium">{fieldErrors.sku}</p>}
+            </div>
             <Select
               label="Product Type"
               value={prodForm.product_type}
@@ -344,35 +442,44 @@ export const ProductsPage: React.FC = () => {
             />
           </div>
 
-          <Input
-            label="Product Name"
-            required
-            value={prodForm.name}
-            onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })}
-            placeholder="e.g. Cloud ERP Platform"
-          />
+          <div>
+            <Input
+              label="Product Name"
+              required
+              value={prodForm.name}
+              onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })}
+              placeholder="e.g. Cloud ERP Platform"
+            />
+            {fieldErrors.name && <p className="text-[11px] text-rose-600 mt-1 font-medium">{fieldErrors.name}</p>}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Sales Price ($)"
-              type="number"
-              step="0.01"
-              required
-              disabled={!isAdmin}
-              value={prodForm.sales_price}
-              onChange={(e) => setProdForm({ ...prodForm, sales_price: e.target.value })}
-              placeholder="2000.00"
-              helperText={!isAdmin ? 'Pricing modifications require Admin role.' : ''}
-            />
-            <Input
-              label="Cost Price ($)"
-              type="number"
-              step="0.01"
-              disabled={!isAdmin}
-              value={prodForm.cost_price}
-              onChange={(e) => setProdForm({ ...prodForm, cost_price: e.target.value })}
-              placeholder="500.00"
-            />
+            <div>
+              <Input
+                label="Sales Price ($)"
+                type="number"
+                step="0.01"
+                required
+                disabled={!isAdmin}
+                value={prodForm.sales_price}
+                onChange={(e) => setProdForm({ ...prodForm, sales_price: e.target.value })}
+                placeholder="2000.00"
+                helperText={!isAdmin ? 'Pricing modifications require Admin role.' : ''}
+              />
+              {fieldErrors.sales_price && <p className="text-[11px] text-rose-600 mt-1 font-medium">{fieldErrors.sales_price}</p>}
+            </div>
+            <div>
+              <Input
+                label="Cost Price ($)"
+                type="number"
+                step="0.01"
+                disabled={!isAdmin}
+                value={prodForm.cost_price}
+                onChange={(e) => setProdForm({ ...prodForm, cost_price: e.target.value })}
+                placeholder="500.00"
+              />
+              {fieldErrors.cost_price && <p className="text-[11px] text-rose-600 mt-1 font-medium">{fieldErrors.cost_price}</p>}
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -398,62 +505,83 @@ export const ProductsPage: React.FC = () => {
       </Modal>
 
       {/* Add Variant Modal */}
-      {selectedProductForVariants && (
-        <Modal
-          isOpen={isVariantModalOpen}
-          onClose={() => setIsVariantModalOpen(false)}
-          title={`Add Variant to "${selectedProductForVariants.name}"`}
-          description={`Base Product Price: ${formatCurrency(selectedProductForVariants.sales_price)}`}
-          maxWidth="md"
-        >
-          <form onSubmit={handleAddVariant} className="space-y-4">
-            {variantError && (
-              <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs">
-                {variantError}
-              </div>
-            )}
-
-            <Input
-              label="Variant Name"
-              required
-              value={variantForm.name}
-              onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
-              placeholder="e.g. Odoo Integration Suite"
-            />
-
-            <Input
-              label="SKU Suffix (Optional)"
-              value={variantForm.sku_suffix}
-              onChange={(e) => setVariantForm({ ...variantForm, sku_suffix: e.target.value })}
-              placeholder="OD"
-              helperText={`Effective SKU: ${selectedProductForVariants.sku}-${variantForm.sku_suffix || 'X'}`}
-            />
-
-            <Input
-              label="Price Adjustment ($)"
-              type="number"
-              step="0.01"
-              required
-              value={variantForm.price_adjustment}
-              onChange={(e) => setVariantForm({ ...variantForm, price_adjustment: e.target.value })}
-              placeholder="560.00"
-              helperText={`Final Unit Price: ${formatCurrency(
-                Number(selectedProductForVariants.sales_price) + (parseFloat(variantForm.price_adjustment) || 0)
-              )}`}
-            />
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setIsVariantModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" isLoading={isSavingVariant}>
-                Save Variant
-              </Button>
+      <Modal
+        isOpen={isVariantModalOpen}
+        onClose={() => setIsVariantModalOpen(false)}
+        title={`Add Variant to ${selectedProductForVariants?.name}`}
+        description="Variants inherit base SKU with a suffix and apply a price delta."
+        maxWidth="md"
+      >
+        <form onSubmit={handleAddVariant} className="space-y-4">
+          {variantError && (
+            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{variantError}</span>
             </div>
-          </form>
-        </Modal>
-      )}
+          )}
+
+          <Input
+            label="Variant Name"
+            required
+            value={variantForm.name}
+            onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
+            placeholder="e.g. Enterprise Edition / 24-7 SLA"
+          />
+
+          <Input
+            label="SKU Suffix (Optional)"
+            value={variantForm.sku_suffix}
+            onChange={(e) => setVariantForm({ ...variantForm, sku_suffix: e.target.value })}
+            placeholder="e.g. ENT-247"
+            helperText={`Effective SKU: ${selectedProductForVariants?.sku}-${variantForm.sku_suffix || '<id>'}`}
+          />
+
+          <Input
+            label="Price Adjustment ($)"
+            type="number"
+            step="0.01"
+            disabled={!isAdmin}
+            value={variantForm.price_adjustment}
+            onChange={(e) => setVariantForm({ ...variantForm, price_adjustment: e.target.value })}
+            placeholder="500.00"
+            helperText={`Calculated unit price: ${formatCurrency(
+              Number(selectedProductForVariants?.sales_price || 0) + Number(variantForm.price_adjustment || 0)
+            )}`}
+          />
+
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setIsVariantModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isSavingVariant}>
+              Add Variant
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Deletion / Archival Confirmation Modal */}
+      <Modal
+        isOpen={!!itemToDelete}
+        onClose={() => setItemToDelete(null)}
+        title="Confirm Removal / Archival"
+        description="Records referenced in active contracts or history will be safely deactivated/archived rather than deleted."
+        maxWidth="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Are you sure you want to remove <b>{itemToDelete?.name}</b>? If it is linked to existing subscriptions or invoices, it will remain archived for financial integrity.
+          </p>
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setItemToDelete(null)}>
+              Cancel
+            </Button>
+            <Button type="button" variant="danger" isLoading={isDeleting} onClick={handleConfirmDelete}>
+              Confirm
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
-
