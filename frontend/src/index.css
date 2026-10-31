@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  /* Thin, quiet scrollbars instead of the chunky platform default. */
+  html,
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cdd5c8 transparent;
+  }
   body {
     @apply bg-background text-text antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
