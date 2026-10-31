@@ -218,3 +218,4 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'billing@brightloop.io')
 import sys  # noqa: E402
 if 'test' in sys.argv:
     PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+    REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {'auth': '100000/min'}  # the throttle itself is exercised in its own test
