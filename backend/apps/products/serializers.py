@@ -14,12 +14,6 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'effective_sku', 'final_unit_price']
 
-    def validate(self, attrs):
-        request = self.context.get('request')
-        if self.instance and 'price_adjustment' in attrs:
-            if not (request and request.user.is_admin_user):
-                raise serializers.ValidationError({"price_adjustment": "Only administrators may modify variant pricing."})
-        return attrs
 
 class ProductSerializer(serializers.ModelSerializer):
     variants = ProductVariantSerializer(many=True, read_only=True)
@@ -37,16 +31,12 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_variants_count(self, obj):
         return obj.variants.count()
 
-    def validate(self, attrs):
-        request = self.context.get('request')
-        # Enforce rule: Only admins may modify product pricing
-        if self.instance:
-            if ('sales_price' in attrs or 'cost_price' in attrs):
-                if not (request and request.user.is_admin_user):
-                    raise serializers.ValidationError({"sales_price": "Only administrators can alter product prices."})
-        else:
-            if ('sales_price' in attrs or 'cost_price' in attrs):
-                if not (request and request.user.is_admin_user):
-                    raise serializers.ValidationError({"sales_price": "Only administrators can set initial product prices."})
-        return attrs
+    def validate_sales_price(self, value):
+        if value < Decimal('0.00'):
+            raise serializers.ValidationError("Sales price cannot be negative.")
+        return value
 
+    def validate_cost_price(self, value):
+        if value < Decimal('0.00'):
+            raise serializers.ValidationError("Cost price cannot be negative.")
+        return value

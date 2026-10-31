@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rest_framework import serializers
 from .models import Plan, BillingInterval
 
@@ -17,7 +18,8 @@ class PlanSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'interval_display', 'active_subscriptions_count']
 
     def get_active_subscriptions_count(self, obj):
-        return obj.subscriptions.filter(status='ACTIVE').count() if hasattr(obj, 'subscriptions') else 0
+        value = getattr(obj, 'n_active_subscriptions', None)
+        return value if value is not None else obj.subscriptions.filter(status='ACTIVE').count()
 
     def validate(self, attrs):
         start = attrs.get('availability_start_date', self.instance.availability_start_date if self.instance else None)
@@ -27,10 +29,20 @@ class PlanSerializer(serializers.ModelSerializer):
                 'availability_end_date': "Availability end date must be on or after start date."
             })
         
-        request = self.context.get('request')
-        if 'price' in attrs and self.instance:
-            if not (request and request.user.is_admin_user):
-                raise serializers.ValidationError({"price": "Only administrators can modify plan pricing."})
-
+        price = attrs.get('price', self.instance.price if self.instance else Decimal('0.00'))
+        if price < Decimal('0.00'):
+            raise serializers.ValidationError({'price': "Plan price cannot be negative."})
+        min_qty = attrs.get('min_quantity', self.instance.min_quantity if self.instance else 1)
+        if min_qty < 1:
+            raise serializers.ValidationError({'min_quantity': "Minimum quantity must be at least 1."})
         return attrs
 
+
+
+class PlanBriefSerializer(PlanSerializer):
+    """Nested representation inside subscriptions / quotations: same fields, no per-row count query."""
+    active_subscriptions_count = None
+
+    class Meta(PlanSerializer.Meta):
+        fields = [f for f in PlanSerializer.Meta.fields if f != 'active_subscriptions_count']
+        read_only_fields = fields
