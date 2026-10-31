@@ -10,8 +10,10 @@ import {
   Clock,
   Sparkles,
   Building,
+  RotateCcw,
+  Tag,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, fetchAll, getApiError } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Subscription, Invoice, Payment } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -31,14 +33,15 @@ export const CustomerPortalPage: React.FC = () => {
   const fetchPortalData = async () => {
     setIsLoading(true)
     try {
-      const [subsRes, invsRes, paysRes] = await Promise.all([
-        api.get('/subscriptions/'),
-        api.get('/invoices/'),
-        api.get('/payments/'),
+      // Every page is loaded so balances and history are complete (the API only ever returns this customer's records)
+      const [subs, invs, pays] = await Promise.all([
+        fetchAll<Subscription>('/subscriptions/'),
+        fetchAll<Invoice>('/invoices/'),
+        fetchAll<Payment>('/payments/'),
       ])
-      setSubscriptions(subsRes.data.results || subsRes.data)
-      setInvoices(invsRes.data.results || invsRes.data)
-      setPayments(paysRes.data.results || paysRes.data)
+      setSubscriptions(subs)
+      setInvoices(invs)
+      setPayments(pays)
     } catch (err) {
       console.error(err)
     } finally {
@@ -57,7 +60,7 @@ export const CustomerPortalPage: React.FC = () => {
       fetchPortalData()
       setTimeout(() => setNotice(null), 4000)
     } catch (err: any) {
-      setNotice(`Error: ${err?.response?.data?.error || err.message}`)
+      setNotice(`Error: ${getApiError(err)}`)
     }
   }
 
@@ -68,7 +71,19 @@ export const CustomerPortalPage: React.FC = () => {
       fetchPortalData()
       setTimeout(() => setNotice(null), 4000)
     } catch (err: any) {
-      setNotice(`Error: ${err?.response?.data?.error || err.message}`)
+      setNotice(`Error: ${getApiError(err)}`)
+    }
+  }
+
+  const handleRenew = async (sub: Subscription) => {
+    if (!confirm('Renew this subscription starting today?')) return
+    try {
+      await api.post(`/subscriptions/${sub.id}/renew/`)
+      setNotice(`Subscription ${sub.subscription_number} renewed.`)
+      fetchPortalData()
+      setTimeout(() => setNotice(null), 4000)
+    } catch (err: any) {
+      setNotice(`Error: ${getApiError(err)}`)
     }
   }
 
@@ -80,7 +95,7 @@ export const CustomerPortalPage: React.FC = () => {
       fetchPortalData()
       setTimeout(() => setNotice(null), 4000)
     } catch (err: any) {
-      setNotice(`Error: ${err?.response?.data?.error || err.message}`)
+      setNotice(`Error: ${getApiError(err)}`)
     }
   }
 
@@ -179,9 +194,30 @@ export const CustomerPortalPage: React.FC = () => {
                     <span className="font-bold text-slate-900">{formatCurrency(s.recurring_subtotal)} / {s.plan_details?.billing_interval.toLowerCase()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Next Billing Date:</span>
-                    <span className="font-semibold text-slate-700">{formatDate(s.next_billing_date)}</span>
+                    <span className="text-slate-500">Started:</span>
+                    <span className="font-semibold text-slate-700">{formatDate(s.start_date)}{s.expiry_date ? ` · ends ${formatDate(s.expiry_date)}` : ''}</span>
                   </div>
+                  {s.status === 'ACTIVE' && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Next Billing Date:</span>
+                      <span className="font-semibold text-slate-700">{formatDate(s.next_billing_date)}</span>
+                    </div>
+                  )}
+                  {s.pricing && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Next invoice (incl. tax{Number(s.pricing.discount_total) > 0 ? ' & discount' : ''}):</span>
+                      <span className="font-bold text-slate-900">{formatCurrency(s.pricing.total)}</span>
+                    </div>
+                  )}
+                  {s.discount_details && (
+                    <div className="flex items-center gap-1.5 text-green-700 bg-green-50 border border-green-100 rounded-lg px-2.5 py-1.5">
+                      <Tag className="w-3 h-3" />
+                      <span>
+                        Discount <b>{s.discount_details.code}</b> ({s.discount_details.discount_type === 'PERCENTAGE' ? `${s.discount_details.value}%` : formatCurrency(s.discount_details.value)} off)
+                        {s.discount_details.end_date ? ` until ${formatDate(s.discount_details.end_date)}` : ''} applies automatically
+                      </span>
+                    </div>
+                  )}
 
                   {/* Customer self-service lifecycle controls */}
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -193,6 +229,11 @@ export const CustomerPortalPage: React.FC = () => {
                     {s.status === 'PAUSED' && (
                       <Button size="sm" variant="success" onClick={() => handleResume(s)}>
                         <Play className="w-3 h-3 mr-1 fill-current" /> Resume
+                      </Button>
+                    )}
+                    {s.status === 'CLOSED' && s.plan_details?.allow_renewal && (
+                      <Button size="sm" variant="outline" onClick={() => handleRenew(s)}>
+                        <RotateCcw className="w-3 h-3 mr-1" /> Renew
                       </Button>
                     )}
                     {s.status === 'ACTIVE' && s.plan_details?.allow_early_close && (
