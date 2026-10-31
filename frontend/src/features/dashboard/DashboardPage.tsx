@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CircleDollarSign,
   CreditCard,
+  Download,
   FileText,
   RefreshCw,
   Repeat,
@@ -29,6 +30,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import type { DashboardMetrics } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { StatusText } from '@/components/ui/StatusText'
+import { Modal } from '@/components/ui/Modal'
 import '@/styles/brightloop.css'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -61,6 +63,22 @@ const daysOverdue = (dueDate: string) => {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+interface DrillDownRecord {
+  id: number
+  reference: string
+  customer_name: string
+  amount: string
+  date: string
+  status: string
+  details: string
+}
+
+interface DrillDownTarget {
+  metric: 'mrr' | 'active_subscriptions' | 'overdue_invoices' | 'revenue_collected'
+  title: string
+  listUrl: string
+}
+
 function SectionHeading({
   index,
   eyebrow,
@@ -92,6 +110,52 @@ export const DashboardPage: React.FC = () => {
   const [data, setData] = useState<DashboardMetrics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+
+  // Drilldown: the records behind a key figure, with CSV export.
+  const [drill, setDrill] = useState<DrillDownTarget | null>(null)
+  const [drillRecords, setDrillRecords] = useState<DrillDownRecord[]>([])
+  const [isDrillLoading, setIsDrillLoading] = useState(false)
+  const [drillError, setDrillError] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const openDrillDown = async (target: DrillDownTarget) => {
+    setDrill(target)
+    setDrillRecords([])
+    setDrillError(false)
+    setIsDrillLoading(true)
+    try {
+      const res = await api.get(`/reports/drilldown/?metric=${target.metric}&page_size=10`)
+      setDrillRecords(res.data.results || [])
+    } catch (err) {
+      console.error('Failed to load drilldown:', err)
+      setDrillError(true)
+    } finally {
+      setIsDrillLoading(false)
+    }
+  }
+
+  const exportDrillDown = async () => {
+    if (!drill) return
+    setIsExporting(true)
+    try {
+      const res = await api.get(`/reports/export/?type=drilldown&metric=${drill.metric}`, {
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `brightloop_${drill.metric}_drilldown.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      console.error('Failed to export drilldown CSV:', err)
+      setDrillError(true)
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const fetchDashboardData = async () => {
     setIsLoading(true)
@@ -197,6 +261,9 @@ export const DashboardPage: React.FC = () => {
           </span>
           <strong>{formatCurrency(metrics.mrr)}</strong>
           <small>{formatCurrency(metrics.arr)} annual run rate</small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'mrr', title: 'Monthly recurring revenue', listUrl: '/subscriptions?status=ACTIVE' })}>
+            View details <ArrowRight size={13} />
+          </button>
         </div>
         <div>
           <span>
@@ -206,7 +273,11 @@ export const DashboardPage: React.FC = () => {
           <small>
             {plural(metrics.total_customers, 'customer')} ·{' '}
             {metrics.upcoming_renewals_count} renewing this week
+            {metrics.churn_rate !== undefined && metrics.churn_rate !== null && ` · ${metrics.churn_rate} churn`}
           </small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'active_subscriptions', title: 'Active subscriptions', listUrl: '/subscriptions?status=ACTIVE' })}>
+            View details <ArrowRight size={13} />
+          </button>
         </div>
         <div>
           <span>
@@ -220,13 +291,23 @@ export const DashboardPage: React.FC = () => {
               ? `${formatCurrency(overdueAmount)} overdue across ${plural(metrics.overdue_count, 'invoice')}`
               : 'Nothing overdue'}
           </small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'overdue_invoices', title: 'Overdue invoices', listUrl: '/invoices?status=OVERDUE' })}>
+            View details <ArrowRight size={13} />
+          </button>
         </div>
         <div>
           <span>
             <CircleDollarSign size={16} /> Collected this month
           </span>
           <strong>{formatCurrency(metrics.revenue_this_month)}</strong>
-          <small>{formatCurrency(metrics.due_next_month ?? 0)} due in the next 30 days</small>
+          <small>
+            {metrics.revenue_collected !== undefined
+              ? `${formatCurrency(metrics.revenue_collected)} collected all time`
+              : `${formatCurrency(metrics.due_next_month ?? 0)} due in the next 30 days`}
+          </small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'revenue_collected', title: 'Collected payments', listUrl: '/payments' })}>
+            View details <ArrowRight size={13} />
+          </button>
         </div>
       </section>
 
@@ -521,6 +602,69 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
       </section>
+
+      <Modal
+        isOpen={!!drill}
+        onClose={() => setDrill(null)}
+        title={drill?.title ?? ''}
+        description="The most recent records behind this figure."
+        maxWidth="2xl"
+      >
+        {isDrillLoading ? (
+          <p className="py-8 text-center text-sm text-slate-500">Loading records…</p>
+        ) : drillError ? (
+          <div className="bl-notice bl-notice-error" role="alert">
+            <AlertCircle size={18} />
+            <span>We couldn’t load these records. Please try again.</span>
+          </div>
+        ) : drillRecords.length === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-500">No records yet.</p>
+        ) : (
+          <div className="bl-table-scroll" role="region" aria-label={drill?.title} tabIndex={0}>
+            <table className="bl-table">
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Customer</th>
+                  <th>Date</th>
+                  <th className="bl-align-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drillRecords.map((r) => (
+                  <tr key={`${r.reference}-${r.id}`}>
+                    <th scope="row">
+                      {r.reference}
+                      {r.details && (
+                        <span className="block text-xs font-normal text-[#6b776d]">{r.details}</span>
+                      )}
+                    </th>
+                    <td>{r.customer_name || '—'}</td>
+                    <td className="bl-muted">{formatDate(r.date)}</td>
+                    <td className="bl-align-right">{formatCurrency(r.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            className="bl-refresh"
+            onClick={exportDrillDown}
+            disabled={isExporting || isDrillLoading}
+          >
+            <Download size={14} />
+            {isExporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+          {drill && (
+            <Link to={drill.listUrl} className="bl-refresh is-primary" onClick={() => setDrill(null)}>
+              Open full list <ArrowRight size={14} />
+            </Link>
+          )}
+        </div>
+      </Modal>
 
       <div className="bl-portal-endnote">
         <span>Everything in its place.</span>

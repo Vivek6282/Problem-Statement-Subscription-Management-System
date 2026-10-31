@@ -9,7 +9,9 @@ export interface User {
   role: Role;
   is_active: boolean;
   is_staff: boolean;
+  is_superuser?: boolean;
   date_joined: string;
+  last_login?: string | null;
   full_name: string;
   customer_id?: number | null;
 }
@@ -277,16 +279,18 @@ export interface DashboardMetrics {
   metrics: {
     total_customers: number;
     active_subscriptions: number;
-    mrr: number;
-    arr: number;
-    revenue_this_month: number;
-    outstanding_balance: number;
+    mrr: number | string;
+    arr: number | string;
+    revenue_collected?: number | string;
+    revenue_this_month: number | string;
+    outstanding_balance: number | string;
     overdue_count: number;
-    overdue_amount?: number;
-    due_next_month?: number;
+    overdue_amount?: number | string;
+    due_next_month?: number | string;
     avg_days_to_pay?: number;
-    instant_payout_available?: number;
+    instant_payout_available?: number | string;
     upcoming_renewals_count: number;
+    churn_rate?: number | string;
   };
   revenue_trend: Array<{
     month: string;
@@ -309,4 +313,3 @@ export interface PaginatedResponse<T> {
   previous: string | null;
   results: T[];
 }
-

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Repeat,
   Plus,
@@ -34,7 +35,13 @@ export const SubscriptionsPage: React.FC = () => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('ALL')
+  const [searchParams] = useSearchParams()
+  const statusParam = searchParams.get('status')
+  const [statusFilter, setStatusFilter] = useState<string>(statusParam || 'ALL')
+
+  useEffect(() => {
+    if (statusParam) setStatusFilter(statusParam)
+  }, [statusParam])
 
   // Create Subscription Modal
   const [isCreateOpen, setIsCreateOpen] = useState(false)

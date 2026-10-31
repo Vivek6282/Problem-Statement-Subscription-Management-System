@@ -728,6 +728,18 @@
   line-height: 1.5;
   color: #6b776d;
 }
+.bl-stat-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bl-green);
+}
+.bl-stat-link:hover {
+  color: var(--bl-ink);
+}
 .bl-section-links {
   display: flex;
   flex-wrap: wrap;

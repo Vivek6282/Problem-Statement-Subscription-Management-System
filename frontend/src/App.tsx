@@ -26,6 +26,7 @@ import { TaxesPage } from '@/features/taxes/TaxesPage'
 import { DiscountsPage } from '@/features/discounts/DiscountsPage'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { AuditPage } from '@/features/audit/AuditPage'
+import { StaffPage } from '@/features/staff/StaffPage'
 import { CustomerPortalPage } from '@/features/portal/CustomerPortalPage'
 import { LandingPage } from '@/features/landing/LandingPage'
 import { TeamPage } from '@/features/team/TeamPage'
@@ -70,6 +71,7 @@ export const App: React.FC = () => {
               {/* Admin only */}
               <Route element={<RoleRoute allow="admin" />}>
                 <Route path="/team" element={<TeamPage />} />
+                <Route path="/staff" element={<StaffPage />} />
               </Route>
 
               {/* Customer self-service portal */}
@@ -94,5 +96,4 @@ export const App: React.FC = () => {
     </QueryClientProvider>
   )
 }
-
 export default App

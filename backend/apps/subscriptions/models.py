@@ -92,7 +92,7 @@ class Subscription(models.Model):
         """
         Calculates normalized Monthly Recurring Revenue for this subscription:
         DAILY: recurring_total * 30
-        WEEKLY: recurring_total * 4.3333
+        WEEKLY: recurring_total * 4.33
         MONTHLY: recurring_total * 1
         YEARLY: recurring_total / 12
         """
@@ -101,14 +101,14 @@ class Subscription(models.Model):
         base = self.recurring_subtotal
         interval = self.plan.billing_interval
         if interval == BillingInterval.DAILY:
-            return base * Decimal('30')
+            return (base * Decimal('30')).quantize(Decimal('0.01'))
         elif interval == BillingInterval.WEEKLY:
-            return (base * Decimal('52')) / Decimal('12')
+            return (base * Decimal('4.33')).quantize(Decimal('0.01'))
         elif interval == BillingInterval.MONTHLY:
-            return base
+            return (base * Decimal('1.00')).quantize(Decimal('0.01'))
         elif interval == BillingInterval.YEARLY:
-            return base / Decimal('12')
-        return base
+            return (base / Decimal('12')).quantize(Decimal('0.01'))
+        return base.quantize(Decimal('0.01'))
 
     def can_transition_to(self, target_status):
         """
@@ -170,4 +170,3 @@ class SubscriptionItem(models.Model):
     @property
     def line_subtotal(self):
         return self.unit_price * self.quantity
-

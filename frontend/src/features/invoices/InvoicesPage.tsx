@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   CheckCircle2,
@@ -29,6 +30,9 @@ const labelClass = 'block text-xs font-medium text-slate-700 mb-1.5'
 
 export const InvoicesPage: React.FC = () => {
   const { isStaff } = useAuth()
+  // Dashboard drilldowns link here with ?status=OVERDUE / UNPAID / <invoice status>.
+  const [searchParams] = useSearchParams()
+  const statusParam = searchParams.get('status')
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -39,7 +43,19 @@ export const InvoicesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'ALL' | 'DRAFT' | 'UNPAID'>('UNPAID')
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState('ALL')
-  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState(statusParam && statusParam !== 'UNPAID' ? statusParam : 'ALL')
+
+  useEffect(() => {
+    if (statusParam === 'OVERDUE') {
+      setStatusFilter('OVERDUE')
+      setActiveTab('UNPAID')
+    } else if (statusParam === 'UNPAID') {
+      setActiveTab('UNPAID')
+      setStatusFilter('ALL')
+    } else if (statusParam) {
+      setStatusFilter(statusParam)
+    }
+  }, [statusParam])
   const [showTableView, setShowTableView] = useState(false)
 
   // Feedback notifications

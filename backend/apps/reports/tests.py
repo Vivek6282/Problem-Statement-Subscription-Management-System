@@ -130,5 +130,5 @@ class EndToEndFlowTestCase(TestCase):
         metrics = res_dash.data['metrics']
         self.assertGreaterEqual(metrics['total_customers'], 1)
         self.assertGreaterEqual(metrics['active_subscriptions'], 1)
-        self.assertGreaterEqual(metrics['mrr'], 3560.00)
-        self.assertGreaterEqual(metrics['revenue_this_month'], 3560.00)
+        self.assertGreaterEqual(Decimal(str(metrics['mrr'])), Decimal('3560.00'))
+        self.assertGreaterEqual(Decimal(str(metrics['revenue_this_month'])), Decimal('3560.00'))

@@ -10,6 +10,7 @@ import {
   Receipt,
   Repeat,
   ShieldCheck,
+  UserCheck,
   UserCog,
   Users,
   type LucideIcon,
@@ -65,6 +66,7 @@ export const navGroups: NavGroup[] = [
     label: 'Admin',
     items: [
       { label: 'Team & Access', icon: UserCog, path: '/team', adminOnly: true },
+      { label: 'Staff & Roles', icon: UserCheck, path: '/staff', adminOnly: true },
     ],
   },
 ]

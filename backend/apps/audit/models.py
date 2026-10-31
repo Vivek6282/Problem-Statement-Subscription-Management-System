@@ -29,7 +29,7 @@ class AuditEvent(models.Model):
 
     @classmethod
     def log_event(cls, action, entity_type, entity_id, description='', user=None, metadata=None, ip_address=None):
-        safe_meta = metadata or {}
+        safe_meta = dict(metadata) if metadata else {}
         # Ensure passwords or tokens are never logged
         for sensitive_key in ['password', 'token', 'secret', 'key']:
             if sensitive_key in safe_meta:
@@ -46,4 +46,3 @@ class AuditEvent(models.Model):
             metadata=safe_meta,
             ip_address=ip_address
         )
-
