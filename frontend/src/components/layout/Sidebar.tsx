@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  Home,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -30,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
 
   const navItems = [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', show: isStaff },
+    { label: 'My Portal', icon: Home, path: '/portal', show: !isStaff },
     { label: 'Customers', icon: Users, path: '/customers', show: isStaff },
     { label: 'Subscriptions', icon: Repeat, path: '/subscriptions', show: true },
     { label: 'Quotations', icon: FileCheck, path: '/quotations', show: true },
