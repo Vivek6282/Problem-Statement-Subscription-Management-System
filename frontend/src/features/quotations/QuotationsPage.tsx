@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   FileCheck,
   Plus,
@@ -10,10 +10,16 @@ import {
   ArrowRight,
   Eye,
   FileText,
+  Send,
+  Check,
+  X as XIcon,
+  Trash2,
+  Layers,
+  Pencil,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, fetchAll, getApiError } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import type { Quotation, Customer, Plan, Product, QuotationStatus } from '@/types'
+import type { Quotation, Customer, Plan, Product, QuotationStatus, Discount, QuotationTemplate, PaymentTerms } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -23,11 +29,19 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { TableControls } from '@/components/ui/TableControls'
 
 export const QuotationsPage: React.FC = () => {
   const { isStaff } = useAuth()
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const [ordering, setOrdering] = useState('-created_at')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
 
@@ -37,16 +51,28 @@ export const QuotationsPage: React.FC = () => {
   const [plans, setPlans] = useState<Plan[]>([])
   const [products, setProducts] = useState<Product[]>([])
 
+  const [editingQuote, setEditingQuote] = useState<Quotation | null>(null)
+  const [discounts, setDiscounts] = useState<Discount[]>([])
+  const [templates, setTemplates] = useState<QuotationTemplate[]>([])
+
   const [formQuote, setFormQuote] = useState({
     customer: '',
+    template: '',
     plan: '',
     validity_days: 30,
+    payment_terms: 'NET_30' as PaymentTerms,
     selectedProduct: '',
     quantity: 1,
-    discount_amount: '0.00',
-    tax_percentage: '18.00',
+    discount: '',
     notes: '',
   })
+
+  // Quotation template manager
+  const emptyTplLine = { product: '', variant: '', quantity: 1 }
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false)
+  const [tplForm, setTplForm] = useState({ name: '', plan: '', validity_days: 30, payment_terms: 'NET_30' as PaymentTerms, lines: [emptyTplLine] })
+  const [tplError, setTplError] = useState<string | null>(null)
+  const [isSavingTpl, setIsSavingTpl] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
@@ -61,10 +87,15 @@ export const QuotationsPage: React.FC = () => {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (statusFilter !== 'ALL') params.append('status', statusFilter)
+      params.append('page', String(page))
+      if (ordering) params.append('ordering', ordering)
+      if (dateFrom) params.append('issue_date__gte', dateFrom)
+      if (dateTo) params.append('issue_date__lte', dateTo)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
       setQuotations(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -74,87 +105,193 @@ export const QuotationsPage: React.FC = () => {
 
   const loadPrerequisites = async () => {
     try {
-      const [cRes, pRes, prRes] = await Promise.all([
-        api.get('/customers/'),
-        api.get('/plans/'),
-        api.get('/products/'),
+      const [cRows, pRows, prRows, dRows, tRows] = await Promise.all([
+        fetchAll<Customer>('/customers/', { status: 'ACTIVE' }),
+        fetchAll<Plan>('/plans/', { is_active: 'true' }),
+        fetchAll<Product>('/products/', { is_active: 'true' }),
+        fetchAll<Discount>('/discounts/', { is_active: 'true' }),
+        fetchAll<QuotationTemplate>('/quotations/templates/', { is_active: 'true' }),
       ])
-      setCustomers(cRes.data.results || cRes.data)
-      setPlans(pRes.data.results || pRes.data)
-      setProducts(prRes.data.results || prRes.data)
+      setCustomers(cRows)
+      setPlans(pRows)
+      setProducts(prRows)
+      setDiscounts(dRows)
+      setTemplates(tRows)
+      return { cRows, pRows }
     } catch (err) {
       console.error(err)
+      return { cRows: [] as Customer[], pRows: [] as Plan[] }
     }
   }
 
   useEffect(() => {
+    const filterKey = String(search) + '|' + String(statusFilter) + '|' + String(ordering) + '|' + String(dateFrom) + '|' + String(dateTo)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchQuotations()
-  }, [search, statusFilter])
+  }, [search, statusFilter, ordering, dateFrom, dateTo, page])
 
-  const openCreateModal = () => {
-    loadPrerequisites()
+  const openEditModal = async (q: Quotation) => {
+    await loadPrerequisites()
+    const first = q.items && q.items.length === 1 ? q.items[0] : null
+    setEditingQuote(q)
     setFormQuote({
-      customer: customers[0]?.id ? String(customers[0].id) : '',
-      plan: plans[0]?.id ? String(plans[0].id) : '',
+      customer: String(q.customer),
+      template: '',
+      plan: q.plan ? String(q.plan) : '',
+      validity_days: q.validity_days,
+      payment_terms: (q.payment_terms || 'NET_30') as PaymentTerms,
+      selectedProduct: first ? String(first.product) : '',
+      quantity: first ? first.quantity : 1,
+      discount: q.discount ? String(q.discount) : '',
+      notes: q.notes || '',
+    })
+    setFormError(null)
+    setIsCreateOpen(true)
+  }
+
+  const openCreateModal = async () => {
+    setEditingQuote(null)
+    const { cRows, pRows } = await loadPrerequisites()
+    setFormQuote({
+      customer: cRows[0]?.id ? String(cRows[0].id) : '',
+      template: '',
+      plan: pRows[0]?.id ? String(pRows[0].id) : '',
       validity_days: 30,
+      payment_terms: 'NET_30',
       selectedProduct: '',
       quantity: 1,
-      discount_amount: '0.00',
-      tax_percentage: '18.00',
+      discount: '',
       notes: '',
     })
     setFormError(null)
     setIsCreateOpen(true)
   }
 
+  const applyTemplate = (templateId: string) => {
+    const tpl = templates.find((t) => t.id === Number(templateId))
+    setFormQuote((f) => ({
+      ...f,
+      template: templateId,
+      ...(tpl
+        ? { plan: tpl.plan ? String(tpl.plan) : f.plan, validity_days: tpl.validity_days, payment_terms: tpl.payment_terms, selectedProduct: '' }
+        : {}),
+    }))
+  }
+
+  const selectedTemplate = templates.find((t) => t.id === Number(formQuote.template))
+
   const handleCreateQuotation = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSaving(true)
     setFormError(null)
 
-    const items = []
+    // Only what the user chose is sent. Prices, discounts amounts and taxes are always calculated by the server.
+    const payload: Record<string, unknown> = {
+      customer: Number(formQuote.customer),
+      plan: formQuote.plan ? Number(formQuote.plan) : null,
+      validity_days: Number(formQuote.validity_days),
+      payment_terms: formQuote.payment_terms,
+      notes: formQuote.notes,
+    }
+    if (formQuote.template && !editingQuote) payload.template = Number(formQuote.template)
+    payload.discount = formQuote.discount ? Number(formQuote.discount) : null
     if (formQuote.selectedProduct) {
-      const prod = products.find((p) => p.id === Number(formQuote.selectedProduct))
-      if (prod) {
-        items.push({
-          product: prod.id,
-          quantity: Number(formQuote.quantity) || 1,
-          unit_price: prod.sales_price,
-          discount_amount: formQuote.discount_amount,
-          tax_percentage: formQuote.tax_percentage,
-        })
-      }
+      payload.items = [{ product: Number(formQuote.selectedProduct), quantity: Number(formQuote.quantity) || 1 }]
+    } else if (!formQuote.template && (!editingQuote || (editingQuote.items?.length ?? 0) <= 1)) {
+      payload.items = []
     }
 
     try {
-      await api.post('/quotations/', {
-        customer: Number(formQuote.customer),
-        plan: formQuote.plan ? Number(formQuote.plan) : null,
-        validity_days: Number(formQuote.validity_days),
-        notes: formQuote.notes,
-        items,
-      })
+      if (editingQuote) {
+        payload.customer = Number(formQuote.customer)
+        await api.patch(`/quotations/${editingQuote.id}/`, payload)
+      } else {
+        await api.post('/quotations/', payload)
+      }
       setIsCreateOpen(false)
       fetchQuotations()
-      setActionNotice('Quotation generated successfully.')
+      setActionNotice(editingQuote ? 'Quotation updated and recalculated.' : 'Quotation generated successfully.')
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setFormError(err?.response?.data?.detail || 'Failed to create quotation.')
+      setFormError(getApiError(err, editingQuote ? 'Failed to update quotation.' : 'Failed to create quotation.'))
     } finally {
       setIsSaving(false)
     }
   }
 
-  const handleConvert = async (quote: Quotation) => {
-    if (!confirm(`Convert quotation ${quote.quotation_number} into an active subscription?`)) return
+  const runAction = async (quote: Quotation, action: 'send' | 'accept' | 'reject' | 'convert_to_subscription', okMessage: string) => {
     try {
-      const res = await api.post(`/quotations/${quote.id}/convert_to_subscription/`)
-      setActionNotice(res.data.message)
+      const res = await api.post(`/quotations/${quote.id}/${action}/`)
+      setActionNotice(action === 'convert_to_subscription' ? res.data.message + ` (${res.data.subscription_number})` : okMessage)
       fetchQuotations()
-      setTimeout(() => setActionNotice(null), 5000)
-    } catch (err: any) {
-      setActionNotice(`Error: ${err?.response?.data?.error || err.message}`)
-      setTimeout(() => setActionNotice(null), 5000)
+      if (detailQuote?.id === quote.id) setDetailQuote(null)
+    } catch (err) {
+      setActionNotice(`Error: ${getApiError(err)}`)
+    }
+    setTimeout(() => setActionNotice(null), 6000)
+  }
+
+  const handleConvert = (quote: Quotation) => {
+    if (!confirm(`Confirm quotation ${quote.quotation_number}? This creates its subscription in the Confirmed stage (activate it separately to start billing).`)) return
+    runAction(quote, 'convert_to_subscription', '')
+  }
+
+  const handleDeleteDraft = async (quote: Quotation) => {
+    if (!confirm(`Delete draft quotation ${quote.quotation_number}? This cannot be undone.`)) return
+    try {
+      await api.delete(`/quotations/${quote.id}/`)
+      setActionNotice(`Draft ${quote.quotation_number} deleted.`)
+      fetchQuotations()
+    } catch (err) {
+      setActionNotice(`Error: ${getApiError(err)}`)
+    }
+    setTimeout(() => setActionNotice(null), 5000)
+  }
+
+  const openTemplates = async () => {
+    await loadPrerequisites()
+    setTplForm({ name: '', plan: '', validity_days: 30, payment_terms: 'NET_30', lines: [emptyTplLine] })
+    setTplError(null)
+    setIsTemplatesOpen(true)
+  }
+
+  const saveTemplate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSavingTpl(true)
+    setTplError(null)
+    try {
+      await api.post('/quotations/templates/', {
+        name: tplForm.name,
+        plan: tplForm.plan ? Number(tplForm.plan) : null,
+        validity_days: Number(tplForm.validity_days),
+        payment_terms: tplForm.payment_terms,
+        items: tplForm.lines
+          .filter((l) => l.product)
+          .map((l) => ({ product: Number(l.product), variant: l.variant ? Number(l.variant) : null, quantity: Number(l.quantity) || 1 })),
+      })
+      setTplForm({ name: '', plan: '', validity_days: 30, payment_terms: 'NET_30', lines: [emptyTplLine] })
+      setTemplates(await fetchAll<QuotationTemplate>('/quotations/templates/', { is_active: 'true' }))
+      setActionNotice('Template saved.')
+      setTimeout(() => setActionNotice(null), 4000)
+    } catch (err) {
+      setTplError(getApiError(err, 'Could not save the template.'))
+    } finally {
+      setIsSavingTpl(false)
+    }
+  }
+
+  const deleteTemplate = async (tpl: QuotationTemplate) => {
+    if (!confirm(`Remove template "${tpl.name}"? Templates already used by quotations are archived instead of deleted.`)) return
+    try {
+      await api.delete(`/quotations/templates/${tpl.id}/`)
+      setTemplates(await fetchAll<QuotationTemplate>('/quotations/templates/', { is_active: 'true' }))
+    } catch (err) {
+      setTplError(getApiError(err))
     }
   }
 
@@ -200,10 +337,16 @@ export const QuotationsPage: React.FC = () => {
           <p className="text-xs text-slate-500 mt-1">Generate automated estimates, PDF proposals, and one-click subscription conversions</p>
         </div>
         {isStaff && (
-          <Button onClick={openCreateModal}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            New Quotation
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={openTemplates}>
+              <Layers className="w-4 h-4 mr-1.5" />
+              Templates
+            </Button>
+            <Button onClick={openCreateModal}>
+              <Plus className="w-4 h-4 mr-1.5" />
+              New Quotation
+            </Button>
+          </div>
         )}
       </div>
 
@@ -240,8 +383,21 @@ export const QuotationsPage: React.FC = () => {
               <option value="ACCEPTED">Accepted</option>
               <option value="CONVERTED">Converted</option>
               <option value="REJECTED">Rejected</option>
+              <option value="EXPIRED">Expired</option>
             </select>
           </div>
+        </CardContent>
+        <CardContent className="px-4 pb-4 pt-3 border-t border-slate-100">
+          <TableControls
+            orderingOptions={[{ label: 'Newest first', value: '-created_at' }, { label: 'Highest total', value: '-total_amount' }, { label: 'Expiring soonest', value: 'expiry_date' }]}
+            ordering={ordering}
+            onOrderingChange={setOrdering}
+            dateLabel="Issued"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+          />
         </CardContent>
       </Card>
 
@@ -312,10 +468,35 @@ export const QuotationsPage: React.FC = () => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {isStaff && q.status !== 'CONVERTED' && (
-                          <Button size="sm" variant="secondary" onClick={() => handleConvert(q)}>
-                            <ArrowRight className="w-3.5 h-3.5 mr-1" /> Convert
+                        {isStaff && q.status === 'DRAFT' && (
+                          <button onClick={() => openEditModal(q)} className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg" title="Edit draft">
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {isStaff && q.status === 'DRAFT' && (
+                          <Button size="sm" variant="outline" onClick={() => runAction(q, 'send', `Quotation ${q.quotation_number} sent.`)}>
+                            <Send className="w-3.5 h-3.5 mr-1" /> Send
                           </Button>
+                        )}
+                        {q.status === 'SENT' && (
+                          <>
+                            <Button size="sm" variant="success" onClick={() => runAction(q, 'accept', `Quotation ${q.quotation_number} accepted.`)}>
+                              <Check className="w-3.5 h-3.5 mr-1" /> Accept
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => confirm(`Reject quotation ${q.quotation_number}?`) && runAction(q, 'reject', `Quotation ${q.quotation_number} rejected.`)}>
+                              <XIcon className="w-3.5 h-3.5 mr-1" /> Reject
+                            </Button>
+                          </>
+                        )}
+                        {isStaff && (q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED') && (
+                          <Button size="sm" variant="secondary" onClick={() => handleConvert(q)}>
+                            <ArrowRight className="w-3.5 h-3.5 mr-1" /> Confirm
+                          </Button>
+                        )}
+                        {isStaff && q.status === 'DRAFT' && (
+                          <button onClick={() => handleDeleteDraft(q)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Delete draft">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
                     </td>
@@ -324,6 +505,7 @@ export const QuotationsPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
@@ -356,17 +538,37 @@ export const QuotationsPage: React.FC = () => {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-500">
+              <span>Payment terms: <b className="text-slate-700">{(detailQuote.payment_terms || 'NET_30').replace('_', ' ')}</b></span>
+              {detailQuote.template_name && <span>Template: <b className="text-slate-700">{detailQuote.template_name}</b></span>}
+              {detailQuote.subscription_number && (
+                <span className="col-span-2">Subscription: <b className="text-slate-700">{detailQuote.subscription_number}</b> ({detailQuote.subscription_status})</span>
+              )}
+            </div>
+
             <div className="space-y-2">
               <h4 className="font-bold text-slate-900">Quoted Line Items</h4>
+              {detailQuote.plan_details && (
+                <div className="p-2.5 bg-white border border-slate-200 rounded-lg flex justify-between">
+                  <span className="font-semibold text-slate-800">Plan: {detailQuote.plan_details.name}</span>
+                  <span className="font-bold text-slate-900">{formatCurrency(detailQuote.plan_details.price)}</span>
+                </div>
+              )}
               {detailQuote.items && detailQuote.items.map((it) => (
                 <div key={it.id} className="p-2.5 bg-white border border-slate-200 rounded-lg flex justify-between">
                   <div>
                     <span className="font-semibold text-slate-800">{it.product_name}</span>
-                    <span className="text-slate-400 ml-2">x {it.quantity}</span>
+                    {it.variant_name && <span className="text-slate-400 ml-1">({it.variant_name})</span>}
+                    <span className="text-slate-400 ml-2">x {it.quantity} @ {formatCurrency(it.unit_price)}</span>
+                    {Number(it.discount_amount) > 0 && <span className="text-green-700 ml-2">-{formatCurrency(it.discount_amount)} discount</span>}
                   </div>
                   <span className="font-bold text-slate-900">{formatCurrency(it.line_total)}</span>
                 </div>
               ))}
+              <div className="p-2.5 bg-slate-50 rounded-lg space-y-0.5">
+                <div className="flex justify-between"><span className="text-slate-500">Discounts</span><span>-{formatCurrency(detailQuote.discount_amount)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Taxes</span><span>+{formatCurrency(detailQuote.tax_amount)}</span></div>
+              </div>
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
@@ -382,14 +584,37 @@ export const QuotationsPage: React.FC = () => {
       <Modal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Create New Quotation"
-        description="Select customer, target plan, and optional billable items."
+        title={editingQuote ? `Edit Draft ${editingQuote.quotation_number}` : 'Create New Quotation'}
+        description={editingQuote ? 'Only Draft quotations can be edited. Prices, discounts and taxes are recalculated.' : 'Select customer, target plan, and optional billable items.'}
         maxWidth="lg"
       >
         <form onSubmit={handleCreateQuotation} className="space-y-4">
           {formError && (
             <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs">
               {formError}
+            </div>
+          )}
+
+          {!editingQuote && (
+          <Select
+            label="Start from Template (optional)"
+            value={formQuote.template}
+            onChange={(e: any) => applyTemplate(e.target.value)}
+            options={[
+              { label: '-- Build from scratch --', value: '' },
+              ...templates.map((t) => ({ label: `${t.name} — valid ${t.validity_days} days`, value: t.id })),
+            ]}
+          />
+          )}
+          {!editingQuote && selectedTemplate && (
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-900">
+              <p className="font-bold">Lines from template:</p>
+              <ul className="list-disc ml-4">
+                {selectedTemplate.items.map((i) => (
+                  <li key={i.id}>{i.product_name}{i.variant_name ? ` (${i.variant_name})` : ''} × {i.quantity}</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-blue-700">Choosing a product below replaces these lines.</p>
             </div>
           )}
 
@@ -447,24 +672,26 @@ export const QuotationsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <Input
-                label="Discount Amount ($)"
-                type="number"
-                step="0.01"
-                value={formQuote.discount_amount}
-                onChange={(e) => setFormQuote({ ...formQuote, discount_amount: e.target.value })}
+            <div className="pt-2">
+              <Select
+                label="Discount (optional)"
+                value={formQuote.discount}
+                onChange={(e: any) => setFormQuote({ ...formQuote, discount: e.target.value })}
+                options={[
+                  { label: 'No discount', value: '' },
+                  ...discounts.map((d) => ({
+                    label: `${d.code} — ${d.name} (${d.discount_type === 'PERCENTAGE' ? d.value + '%' : formatCurrency(d.value)})`,
+                    value: d.id,
+                  })),
+                ]}
               />
-              <Input
-                label="Tax Rate (%)"
-                type="number"
-                step="0.01"
-                value={formQuote.tax_percentage}
-                onChange={(e) => setFormQuote({ ...formQuote, tax_percentage: e.target.value })}
-              />
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Unit prices (including variant adjustments), discount amounts and taxes are calculated automatically from the catalogue, discount rules and tax rules.
+              </p>
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
           <Input
             label="Validity (Days)"
             type="number"
@@ -472,6 +699,18 @@ export const QuotationsPage: React.FC = () => {
             value={formQuote.validity_days}
             onChange={(e) => setFormQuote({ ...formQuote, validity_days: parseInt(e.target.value) || 30 })}
           />
+          <Select
+            label="Payment Terms"
+            value={formQuote.payment_terms}
+            onChange={(e: any) => setFormQuote({ ...formQuote, payment_terms: e.target.value })}
+            options={[
+              { label: 'Net 30 Days', value: 'NET_30' },
+              { label: 'Net 15 Days', value: 'NET_15' },
+              { label: 'Due Immediately', value: 'IMMEDIATE' },
+              { label: 'Net 60 Days', value: 'NET_60' },
+            ]}
+          />
+          </div>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-700">Proposal Notes</label>
@@ -489,10 +728,98 @@ export const QuotationsPage: React.FC = () => {
               Cancel
             </Button>
             <Button type="submit" isLoading={isSaving}>
-              Generate Quotation
+              {editingQuote ? 'Save Changes' : 'Generate Quotation'}
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Quotation Templates Manager */}
+      <Modal
+        isOpen={isTemplatesOpen}
+        onClose={() => setIsTemplatesOpen(false)}
+        title="Quotation Templates"
+        description="Reusable offers: plan, product lines, validity and payment terms."
+        maxWidth="2xl"
+      >
+        <div className="space-y-5 text-xs">
+          {templates.length === 0 ? (
+            <p className="text-slate-500">No templates yet. Create the first one below.</p>
+          ) : (
+            <ul className="space-y-2 max-h-48 overflow-y-auto">
+              {templates.map((t) => (
+                <li key={t.id} className="p-3 border border-slate-200 rounded-xl flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-900">{t.name}</p>
+                    <p className="text-slate-500">
+                      {t.plan_name || 'No plan'} · valid {t.validity_days} days · {t.payment_terms.replace('_', ' ')}
+                    </p>
+                    <p className="text-slate-400">
+                      {t.items.length === 0 ? 'No product lines' : t.items.map((i) => `${i.product_name}${i.variant_name ? ' (' + i.variant_name + ')' : ''} × ${i.quantity}`).join(', ')}
+                    </p>
+                  </div>
+                  <button onClick={() => deleteTemplate(t)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Remove template">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form onSubmit={saveTemplate} className="space-y-3 pt-4 border-t border-slate-100">
+            <p className="font-bold text-slate-900 text-sm">New template</p>
+            {tplError && <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg">{tplError}</div>}
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Template name" required value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} />
+              <Select
+                label="Plan"
+                value={tplForm.plan}
+                onChange={(e: any) => setTplForm({ ...tplForm, plan: e.target.value })}
+                options={[{ label: '-- No plan --', value: '' }, ...plans.map((p) => ({ label: `${p.name} (${formatCurrency(p.price)})`, value: p.id }))]}
+              />
+              <Input label="Validity (days)" type="number" min="1" value={tplForm.validity_days} onChange={(e) => setTplForm({ ...tplForm, validity_days: parseInt(e.target.value) || 30 })} />
+              <Select
+                label="Payment terms"
+                value={tplForm.payment_terms}
+                onChange={(e: any) => setTplForm({ ...tplForm, payment_terms: e.target.value })}
+                options={[
+                  { label: 'Net 30 Days', value: 'NET_30' }, { label: 'Net 15 Days', value: 'NET_15' },
+                  { label: 'Due Immediately', value: 'IMMEDIATE' }, { label: 'Net 60 Days', value: 'NET_60' },
+                ]}
+              />
+            </div>
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-200/80">
+              <p className="font-bold text-slate-800">Product lines</p>
+              {tplForm.lines.map((line, idx) => {
+                const prod = products.find((p) => p.id === Number(line.product))
+                const setLine = (patch: Partial<typeof line>) =>
+                  setTplForm({ ...tplForm, lines: tplForm.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) })
+                return (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                    <select value={line.product} onChange={(e) => setLine({ product: e.target.value, variant: '' })} className="col-span-5 text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg">
+                      <option value="">-- Product --</option>
+                      {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <select value={line.variant} onChange={(e) => setLine({ variant: e.target.value })} disabled={!prod || !prod.variants || prod.variants.length === 0} className="col-span-4 text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg disabled:bg-slate-50">
+                      <option value="">No variant</option>
+                      {prod?.variants?.filter((v) => v.is_active).map((v) => <option key={v.id} value={v.id}>{v.name} (+{v.price_adjustment})</option>)}
+                    </select>
+                    <input type="number" min="1" value={line.quantity} onChange={(e) => setLine({ quantity: parseInt(e.target.value) || 1 })} className="col-span-2 text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg" aria-label="Quantity" />
+                    <button type="button" onClick={() => setTplForm({ ...tplForm, lines: tplForm.lines.filter((_, i) => i !== idx) })} className="col-span-1 p-1.5 text-slate-400 hover:text-red-600" title="Remove line">
+                      <XIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })}
+              <Button type="button" size="sm" variant="outline" onClick={() => setTplForm({ ...tplForm, lines: [...tplForm.lines, emptyTplLine] })}>
+                <Plus className="w-3 h-3 mr-1" /> Add line
+              </Button>
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" isLoading={isSavingTpl}>Save Template</Button>
+            </div>
+          </form>
+        </div>
       </Modal>
     </div>
   )
