@@ -42,8 +42,10 @@ export function WorkspaceShell({
   const [signingOut, setSigningOut] = useState(false)
 
   const links = groups.flatMap((group) => group.items)
+  // Outside the nav, only the profile is reachable; RoleRoute shows Access denied everywhere else.
   const title =
-    links.find((link) => location.pathname.startsWith(link.path))?.label || 'Account settings'
+    links.find((link) => location.pathname.startsWith(link.path))?.label ||
+    (location.pathname.startsWith('/profile') ? 'Account settings' : 'Access denied')
   const initial = (user?.first_name?.[0] || user?.email?.[0] || 'U').toUpperCase()
 
   const handleLogout = async () => {
