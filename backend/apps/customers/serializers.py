@@ -16,16 +16,30 @@ class CustomerSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'reference', 'created_at', 'updated_at', 'subscriptions_count', 'active_subscriptions_count', 'outstanding_balance']
 
+    # The viewset annotates these in a single query; the fallbacks keep the serializer usable on its own.
     def get_subscriptions_count(self, obj):
-        return obj.subscriptions.count() if hasattr(obj, 'subscriptions') else 0
+        value = getattr(obj, 'n_subscriptions', None)
+        return value if value is not None else obj.subscriptions.count()
 
     def get_active_subscriptions_count(self, obj):
-        return obj.subscriptions.filter(status='ACTIVE').count() if hasattr(obj, 'subscriptions') else 0
+        value = getattr(obj, 'n_active_subscriptions', None)
+        return value if value is not None else obj.subscriptions.filter(status='ACTIVE').count()
 
     def get_outstanding_balance(self, obj):
-        if hasattr(obj, 'invoices'):
-            return sum(inv.balance_due for inv in obj.invoices.filter(status__in=['CONFIRMED', 'PARTIALLY_PAID', 'OVERDUE']))
-        return 0
+        value = getattr(obj, 'outstanding_total', None)
+        if value is not None:
+            return value
+        from django.db.models import Sum
+        return obj.invoices.filter(status__in=['CONFIRMED', 'PARTIALLY_PAID', 'OVERDUE']).aggregate(t=Sum('balance_due'))['t'] or 0
+
+
+class CustomerBriefSerializer(serializers.ModelSerializer):
+    """Light nested representation used inside subscriptions, quotations, invoices and payments (no per-row queries)."""
+    class Meta:
+        model = Customer
+        fields = ['id', 'reference', 'name', 'company', 'email', 'phone', 'address_line1', 'address_line2',
+                  'city', 'state', 'postal_code', 'country', 'status']
+        read_only_fields = fields
 
 class CustomerCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
