@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowUpRight, LogOut, Menu, UserRound, X, type LucideIcon } from 'lucide-react'
+import { ArrowUpRight, HelpCircle, LogOut, Menu, UserRound, X, type LucideIcon } from 'lucide-react'
 import { useAuth } from '@/features/auth/AuthContext'
 import { BrightloopBrand } from './BrightloopBrand'
+import { OPEN_TOUR_EVENT, Tour } from '@/features/tour/Tour'
 import '@/styles/brightloop.css'
 
 export interface WorkspaceLink {
@@ -60,6 +61,7 @@ export function WorkspaceShell({
 
   return (
     <div className={`bl-theme bl-customer-shell ${className}`}>
+      <Tour />
       <a className="bl-skip-link" href="#workspace-main">
         Skip to content
       </a>
@@ -99,6 +101,14 @@ export function WorkspaceShell({
               <small>{accountNote}</small>
             </span>
           </Link>
+          <button
+            className="bl-signout"
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(OPEN_TOUR_EVENT))}
+          >
+            <HelpCircle size={16} />
+            Take the tour
+          </button>
           <button className="bl-signout" type="button" onClick={handleLogout} disabled={signingOut}>
             <LogOut size={16} />
             {signingOut ? 'Signing out…' : 'Sign out'}
@@ -152,6 +162,16 @@ export function WorkspaceShell({
                 </NavLink>
               ),
             )}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false)
+                window.dispatchEvent(new Event(OPEN_TOUR_EVENT))
+              }}
+            >
+              <HelpCircle size={17} />
+              Take the tour
+            </button>
             <button type="button" onClick={handleLogout} disabled={signingOut}>
               <LogOut size={17} />
               {signingOut ? 'Signing out…' : 'Sign out'}
