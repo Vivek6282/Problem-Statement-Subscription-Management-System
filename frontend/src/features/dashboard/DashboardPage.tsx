@@ -12,6 +12,9 @@ import {
   ArrowUpRight,
   RefreshCw,
   Plus,
+  SlidersHorizontal,
+  X,
+  Receipt,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -25,27 +28,36 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import { api } from '@/lib/api'
+import { api, fetchAll } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import type { DashboardMetrics } from '@/types'
+import type { DashboardMetrics, Customer } from '@/types'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 
-const STATUS_COLORS = ['#2563EB', '#F59E0B', '#94A3B8', '#16A34A', '#DC2626']
+const STATUS_COLORS = ['#16A34A', '#F59E0B', '#94A3B8', '#8B5CF6', '#2563EB', '#DC2626']
 
 export const DashboardPage: React.FC = () => {
   const [data, setData] = useState<DashboardMetrics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const emptyFilters = { date_from: '', date_to: '', subscription_status: '', invoice_status: '', customer: '', payment_method: '' }
+  const [filters, setFilters] = useState(emptyFilters)
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const activeFilterCount = Object.values(filters).filter(Boolean).length
 
   const fetchDashboardData = async () => {
     setIsLoading(true)
+    setLoadError(null)
     try {
-      const res = await api.get<DashboardMetrics>('/reports/dashboard/')
+      const params = new URLSearchParams()
+      Object.entries(filters).forEach(([k, v]) => v && params.append(k, v))
+      const res = await api.get<DashboardMetrics>(`/reports/dashboard/${params.toString() ? '?' + params.toString() : ''}`)
       setData(res.data)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load dashboard metrics:', err)
+      setLoadError(err?.response?.data?.error || 'Could not load dashboard metrics.')
     } finally {
       setIsLoading(false)
     }
@@ -53,9 +65,16 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     fetchDashboardData()
+  }, [filters])
+
+  useEffect(() => {
+    fetchAll<Customer>('/customers/').then(setCustomers).catch(() => setCustomers([]))
   }, [])
 
-  if (isLoading || !data) {
+  const setFilter = (key: keyof typeof emptyFilters, value: string) => setFilters((f) => ({ ...f, [key]: value }))
+  const filterField = 'text-xs font-semibold px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary'
+
+  if (!data) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -111,6 +130,22 @@ export const DashboardPage: React.FC = () => {
       bg: 'bg-slate-100',
     },
     {
+      label: 'Revenue Received',
+      value: formatCurrency(metrics.revenue_received ?? 0),
+      subtext: activeFilterCount ? 'Cash received for the selected filters' : 'All cash received (reversed payments excluded)',
+      icon: CreditCard,
+      color: 'text-green-700',
+      bg: 'bg-green-50',
+    },
+    {
+      label: 'Total Invoices',
+      value: metrics.total_invoices ?? 0,
+      subtext: `Invoiced value ${formatCurrency(metrics.invoiced_total ?? 0)}`,
+      icon: Receipt,
+      color: 'text-slate-700',
+      bg: 'bg-slate-100',
+    },
+    {
       label: 'Collected This Month',
       value: formatCurrency(metrics.revenue_this_month),
       subtext: 'Cash collections in current calendar month',
@@ -129,7 +164,7 @@ export const DashboardPage: React.FC = () => {
     {
       label: 'Overdue Invoices',
       value: metrics.overdue_count,
-      subtext: 'Past due date needing collection',
+      subtext: `${formatCurrency(metrics.overdue_amount ?? 0)} past due and uncollected`,
       icon: AlertTriangle,
       color: 'text-red-600',
       bg: 'bg-red-50',
@@ -166,8 +201,51 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-4 flex flex-wrap items-end gap-3">
+          <SlidersHorizontal className="w-4 h-4 text-slate-400 mb-2" />
+          <label className="text-[11px] font-semibold text-slate-500 flex flex-col gap-1">From
+            <input type="date" value={filters.date_from} max={filters.date_to || undefined} onChange={(e) => setFilter('date_from', e.target.value)} className={filterField} />
+          </label>
+          <label className="text-[11px] font-semibold text-slate-500 flex flex-col gap-1">To
+            <input type="date" value={filters.date_to} min={filters.date_from || undefined} onChange={(e) => setFilter('date_to', e.target.value)} className={filterField} />
+          </label>
+          <label className="text-[11px] font-semibold text-slate-500 flex flex-col gap-1">Subscription status
+            <select value={filters.subscription_status} onChange={(e) => setFilter('subscription_status', e.target.value)} className={filterField}>
+              <option value="">All</option>
+              {['DRAFT', 'QUOTATION', 'CONFIRMED', 'ACTIVE', 'PAUSED', 'CLOSED'].map((v) => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] font-semibold text-slate-500 flex flex-col gap-1">Invoice status
+            <select value={filters.invoice_status} onChange={(e) => setFilter('invoice_status', e.target.value)} className={filterField}>
+              <option value="">All</option>
+              {[['DRAFT', 'Draft'], ['CONFIRMED', 'Due / Confirmed'], ['PARTIALLY_PAID', 'Partially paid'], ['PAID', 'Paid'], ['OVERDUE', 'Overdue'], ['CANCELLED', 'Cancelled']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] font-semibold text-slate-500 flex flex-col gap-1">Customer
+            <select value={filters.customer} onChange={(e) => setFilter('customer', e.target.value)} className={`${filterField} max-w-48`}>
+              <option value="">All customers</option>
+              {customers.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] font-semibold text-slate-500 flex flex-col gap-1">Payment method
+            <select value={filters.payment_method} onChange={(e) => setFilter('payment_method', e.target.value)} className={filterField}>
+              <option value="">All</option>
+              {[['BANK_TRANSFER', 'Bank transfer'], ['UPI', 'UPI'], ['CASH', 'Cash'], ['CARD', 'Card'], ['OTHER', 'Other']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          {activeFilterCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setFilters(emptyFilters)}>
+              <X className="w-3.5 h-3.5 mr-1" /> Clear ({activeFilterCount})
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+      {loadError && <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs" role="alert">{loadError}</div>}
+
       {/* Summary Stat Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 transition-opacity ${isLoading ? 'opacity-60' : ''}`}>
         {statCards.map((card, idx) => {
           const Icon = card.icon
           return (
