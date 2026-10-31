@@ -54,6 +54,7 @@ export const ReportsPage: React.FC = () => {
   // Export state
   const [exportingType, setExportingType] = useState<string | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const handlePresetChange = (preset: DatePreset) => {
     setDatePreset(preset)
@@ -110,6 +111,7 @@ export const ReportsPage: React.FC = () => {
 
   const handleExportCSV = async (type: string, filename: string) => {
     setExportingType(type)
+    setExportError(null)
     try {
       let url = `/reports/export/?type=${type}`
       if (startDate) url += `&start_date=${startDate}`
@@ -128,6 +130,7 @@ export const ReportsPage: React.FC = () => {
       setTimeout(() => setToastMessage(null), 3000)
     } catch (err) {
       console.error('Export CSV error:', err)
+      setExportError('The export failed. Try again in a moment.')
     } finally {
       setExportingType(null)
     }
@@ -152,6 +155,12 @@ export const ReportsPage: React.FC = () => {
         <div className="fixed top-24 right-8 z-50 px-4 py-2.5 rounded-2xl bg-slate-900 text-white shadow-xl text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {exportError && (
+        <div className="bl-notice bl-notice-error" role="alert">
+          <span>{exportError}</span>
         </div>
       )}
 

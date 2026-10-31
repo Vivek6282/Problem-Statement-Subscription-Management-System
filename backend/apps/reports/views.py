@@ -4,7 +4,7 @@ from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.utils import timezone
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.db.models import (
     Sum,
     Count,
@@ -21,6 +21,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.accounts.permissions import IsStaffOrAdmin
+from apps.audit.models import AuditEvent
 from apps.customers.models import Customer, CustomerStatus
 from apps.subscriptions.models import MRR_FACTORS, Subscription, SubscriptionStatus, SubscriptionItem
 from apps.invoices.models import Invoice, InvoiceStatus, InvoiceItem
@@ -30,14 +31,20 @@ from apps.products.models import Product
 from .business_time import business_today
 
 
+_CSV_FORMULA_START = ('=', '+', '-', '@')
+_CSV_LEADING_BLANKS = ' \t\r\n'
+
+
 def sanitize_csv_cell(val):
     """
-    Sanitize CSV field to prevent formula injection attacks (=, +, -, @).
+    Neutralise spreadsheet formula injection. The value is treated as text; if, after skipping
+    leading space, tab, CR and LF, it starts with = + - @, or if it starts with a tab or CR,
+    a single quote is prefixed so the cell opens as plain text.
     """
     if val is None:
         return ''
     s = str(val)
-    if s and s[0] in ['=', '+', '-', '@']:
+    if s[:1] in ('\t', '\r') or s.lstrip(_CSV_LEADING_BLANKS)[:1] in _CSV_FORMULA_START:
         return "'" + s
     return s
 
@@ -580,75 +587,132 @@ class DrillDownView(views.APIView):
         })
 
 
+class _Echo:
+    """File-like object whose write() returns the value, so csv.writer can feed a generator."""
+    def write(self, value):
+        return value
+
+
+EXPORT_CHUNK_SIZE = 1000
+
+
+def _stream_csv(header, rows):
+    writer = csv.writer(_Echo())
+    yield writer.writerow(header)
+    for row in rows:
+        yield writer.writerow([sanitize_csv_cell(v) for v in row])
+
+
+def _money(value):
+    return f"{value:.2f}"
+
+
+def _export_subscriptions(filters):
+    qs = Subscription.objects.all()
+    if filters['plan_id']:
+        qs = qs.filter(plan_id=filters['plan_id'])
+    if filters['product_id']:
+        qs = qs.filter(pk__in=SubscriptionItem.objects.filter(product_id=filters['product_id']).values('subscription_id'))
+    if filters['start_date']:
+        qs = qs.filter(start_date__gte=filters['start_date'])
+    if filters['end_date']:
+        qs = qs.filter(start_date__lte=filters['end_date'])
+    qs = qs.select_related('customer', 'plan').prefetch_related('items').order_by('id')
+    header = ['Subscription Number', 'Customer', 'Plan', 'Status', 'Start Date', 'Expiry Date',
+              'Next Billing Date', 'MRR', 'Currency']
+    rows = (
+        (s.subscription_number, s.customer.name, s.plan.name, s.status, s.start_date.isoformat(),
+         s.expiry_date.isoformat() if s.expiry_date else '', s.next_billing_date.isoformat() if s.next_billing_date else '',
+         _money(s.normalized_mrr), settings.CURRENCY_CODE)
+        for s in qs.iterator(chunk_size=EXPORT_CHUNK_SIZE)
+    )
+    return header, rows
+
+
+def _export_payments(filters):
+    qs = get_received_payments_queryset(filters['start_date'], filters['end_date'])
+    qs = qs.select_related('customer', 'invoice').order_by('-payment_date', 'id')
+    header = ['Payment Ref', 'Invoice', 'Customer', 'Amount', 'Method', 'Date', 'Transaction Ref', 'Currency']
+    rows = (
+        (p.payment_number, p.invoice.invoice_number if p.invoice else '', p.customer.name, _money(p.amount),
+         p.payment_method, p.payment_date.isoformat(), p.transaction_reference, settings.CURRENCY_CODE)
+        for p in qs.iterator(chunk_size=EXPORT_CHUNK_SIZE)
+    )
+    return header, rows
+
+
+def _export_invoices(filters):
+    qs = Invoice.objects.all()
+    if filters['start_date']:
+        qs = qs.filter(issue_date__gte=filters['start_date'])
+    if filters['end_date']:
+        qs = qs.filter(issue_date__lte=filters['end_date'])
+    qs = qs.select_related('customer').order_by('-issue_date', 'id')
+    header = ['Invoice Number', 'Customer', 'Status', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance Due', 'Currency']
+    rows = (
+        (i.invoice_number, i.customer.name, i.status, i.issue_date.isoformat(), i.due_date.isoformat(),
+         _money(i.total_amount), _money(i.paid_amount), _money(i.balance_due), settings.CURRENCY_CODE)
+        for i in qs.iterator(chunk_size=EXPORT_CHUNK_SIZE)
+    )
+    return header, rows
+
+
+def _export_drilldown(metric, filters):
+    kind, qs, _total = drilldown_queryset(metric, filters)
+    header = DRILLDOWN_HEADER + ['Currency']
+    rows = (drilldown_row(kind, obj) + (settings.CURRENCY_CODE,) for obj in qs.iterator(chunk_size=EXPORT_CHUNK_SIZE))
+    return header, rows
+
+
 class ExportReportCSVView(views.APIView):
     """
-    Exports clean CSV reports for subscriptions, invoices, payments, or drilldown queries.
-    Cells are strictly sanitized against spreadsheet formula injection attacks.
+    Streams CSV exports (drilldown, subscriptions, payments, invoices) for the same filters the
+    drill-down accepts. Money is a plain 2-decimal string with a Currency column, dates are ISO 8601,
+    and every cell is neutralised against spreadsheet formula injection.
     """
     permission_classes = [IsStaffOrAdmin]
 
     def get(self, request):
         report_type = request.query_params.get('type', 'invoices').lower()
-        response = HttpResponse(content_type='text/csv')
+        filters = parse_report_filters(request.query_params)
 
         if report_type == 'drilldown':
             metric = request.query_params.get('metric', 'mrr').lower()
             if metric not in DRILLDOWN_METRICS:
                 return Response({'error': f'Unsupported metric: {metric}'}, status=status.HTTP_400_BAD_REQUEST)
-            filters = parse_report_filters(request.query_params)
-            kind, qs, _total = drilldown_queryset(metric, filters)
-            response['Content-Disposition'] = f'attachment; filename="brightloop_drilldown_{metric}.csv"'
-            writer = csv.writer(response)
-            writer.writerow(DRILLDOWN_HEADER)
-            for obj in qs:
-                writer.writerow([sanitize_csv_cell(v) for v in drilldown_row(kind, obj)])
-            return response
-
-        if report_type == 'subscriptions':
-            response['Content-Disposition'] = 'attachment; filename="brightloop_subscriptions.csv"'
-            writer = csv.writer(response)
-            writer.writerow(['Subscription Number', 'Customer', 'Plan', 'Status', 'Start Date', 'Expiry Date', 'Next Billing Date', 'MRR'])
-            for s in Subscription.objects.select_related('customer', 'plan').all():
-                writer.writerow([
-                    sanitize_csv_cell(s.subscription_number),
-                    sanitize_csv_cell(s.customer.name),
-                    sanitize_csv_cell(s.plan.name),
-                    sanitize_csv_cell(s.status),
-                    sanitize_csv_cell(s.start_date),
-                    sanitize_csv_cell(s.expiry_date or ''),
-                    sanitize_csv_cell(s.next_billing_date),
-                    sanitize_csv_cell(f"${s.normalized_mrr:,.2f}")
-                ])
+            header, rows = _export_drilldown(metric, filters)
+            label = f'drilldown_{metric}'
+        elif report_type == 'subscriptions':
+            header, rows = _export_subscriptions(filters)
+            label = 'subscriptions'
         elif report_type == 'payments':
-            response['Content-Disposition'] = 'attachment; filename="brightloop_payments.csv"'
-            writer = csv.writer(response)
-            writer.writerow(['Payment Ref', 'Invoice', 'Customer', 'Amount', 'Method', 'Date', 'Transaction Ref'])
-            for p in Payment.objects.select_related('customer', 'invoice').all():
-                writer.writerow([
-                    sanitize_csv_cell(p.payment_number),
-                    sanitize_csv_cell(p.invoice.invoice_number if p.invoice else ''),
-                    sanitize_csv_cell(p.customer.name),
-                    sanitize_csv_cell(f"${p.amount:,.2f}"),
-                    sanitize_csv_cell(p.payment_method),
-                    sanitize_csv_cell(p.payment_date),
-                    sanitize_csv_cell(p.transaction_reference)
-                ])
-        else: # Default invoices
-            response['Content-Disposition'] = 'attachment; filename="brightloop_invoices.csv"'
-            writer = csv.writer(response)
-            writer.writerow(['Invoice Number', 'Customer', 'Status', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance Due'])
-            for inv in Invoice.objects.select_related('customer').all():
-                writer.writerow([
-                    sanitize_csv_cell(inv.invoice_number),
-                    sanitize_csv_cell(inv.customer.name),
-                    sanitize_csv_cell(inv.status),
-                    sanitize_csv_cell(inv.issue_date),
-                    sanitize_csv_cell(inv.due_date),
-                    sanitize_csv_cell(f"${inv.total_amount:,.2f}"),
-                    sanitize_csv_cell(f"${inv.paid_amount:,.2f}"),
-                    sanitize_csv_cell(f"${inv.balance_due:,.2f}")
-                ])
+            header, rows = _export_payments(filters)
+            label = 'payments'
+        else:
+            header, rows = _export_invoices(filters)
+            label = 'invoices'
 
+        start = filters['start_date'].isoformat() if filters['start_date'] else 'all'
+        end = filters['end_date'].isoformat() if filters['end_date'] else 'all'
+
+        AuditEvent.log_event(
+            action='REPORT_EXPORTED',
+            entity_type='Report',
+            entity_id=label,
+            description=f'Exported {label} report as CSV',
+            user=request.user,
+            metadata={
+                'type': label,
+                'start_date': start,
+                'end_date': end,
+                'plan_id': filters['plan_id'],
+                'product_id': filters['product_id'],
+            },
+        )
+
+        response = StreamingHttpResponse(_stream_csv(header, rows), content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="brightloop_{label}_{start}_{end}.csv"'
+        response['Cache-Control'] = 'no-store'
         return response
 
 

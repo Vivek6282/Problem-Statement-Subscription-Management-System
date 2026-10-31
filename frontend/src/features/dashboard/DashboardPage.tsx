@@ -117,6 +117,7 @@ export const DashboardPage: React.FC = () => {
   const [isDrillLoading, setIsDrillLoading] = useState(false)
   const [drillError, setDrillError] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const openDrillDown = async (target: DrillDownTarget) => {
     setDrill(target)
@@ -137,6 +138,7 @@ export const DashboardPage: React.FC = () => {
   const exportDrillDown = async () => {
     if (!drill) return
     setIsExporting(true)
+    setExportError(null)
     try {
       const res = await api.get(`/reports/export/?type=drilldown&metric=${drill.metric}`, {
         responseType: 'blob',
@@ -151,7 +153,7 @@ export const DashboardPage: React.FC = () => {
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (err) {
       console.error('Failed to export drilldown CSV:', err)
-      setDrillError(true)
+      setExportError('The export failed. Try again in a moment.')
     } finally {
       setIsExporting(false)
     }
@@ -656,8 +658,14 @@ export const DashboardPage: React.FC = () => {
             disabled={isExporting || isDrillLoading}
           >
             <Download size={14} />
-            {isExporting ? 'Exporting…' : 'Export CSV'}
+            {isExporting ? 'Preparing export…' : 'Export CSV'}
           </button>
+          {exportError && (
+            <div className="bl-notice bl-notice-error" role="alert">
+              <AlertCircle size={18} />
+              <span>{exportError}</span>
+            </div>
+          )}
           {drill && (
             <Link to={drill.listUrl} className="bl-refresh is-primary" onClick={() => setDrill(null)}>
               Open full list <ArrowRight size={14} />
