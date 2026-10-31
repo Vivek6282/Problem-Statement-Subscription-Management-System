@@ -12,6 +12,7 @@ import {
   Tag,
   Archive,
   CheckCircle2,
+  Sparkles,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
@@ -33,6 +34,26 @@ export const ProductsPage: React.FC = () => {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('ALL')
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null)
+
+  // Optional AI description drafts (admin only; the page works the same without them)
+  const [aiAvailable, setAiAvailable] = useState(false)
+  const [aiDraft, setAiDraft] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState(false)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    api
+      .get('/assistant/status/')
+      .then((res) => {
+        if (!cancelled) setAiAvailable(!!res.data?.available)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isAdmin])
 
   // Product Modal
   const [isProdModalOpen, setIsProdModalOpen] = useState(false)
@@ -87,7 +108,31 @@ export const ProductsPage: React.FC = () => {
     fetchProducts()
   }, [search, typeFilter])
 
+  const requestDraft = async () => {
+    if (!prodForm.name.trim()) {
+      setAiError(true)
+      return
+    }
+    setAiLoading(true)
+    setAiError(false)
+    setAiDraft(null)
+    try {
+      const res = await api.post('/assistant/product-description/', {
+        name: prodForm.name,
+        product_type: prodForm.product_type,
+        variant_names: (editingProduct?.variants ?? []).map((v) => v.name).slice(0, 20),
+      })
+      setAiDraft(res.data.draft)
+    } catch {
+      setAiError(true) // every form value is kept
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   const openCreateProduct = () => {
+    setAiDraft(null)
+    setAiError(false)
     setEditingProduct(null)
     setProdForm({
       sku: '',
@@ -104,6 +149,8 @@ export const ProductsPage: React.FC = () => {
   }
 
   const openEditProduct = (p: Product) => {
+    setAiDraft(null)
+    setAiError(false)
     setEditingProduct(p)
     setProdForm({
       sku: p.sku,
@@ -491,6 +538,46 @@ export const ProductsPage: React.FC = () => {
               onChange={(e) => setProdForm({ ...prodForm, description: e.target.value })}
               placeholder="Detailed description for invoices and quotations..."
             />
+            {isAdmin && aiAvailable && (
+              <div className="pt-1 space-y-2">
+                <Button type="button" size="sm" variant="outline" onClick={requestDraft} isLoading={aiLoading}>
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Draft description
+                </Button>
+                {aiLoading && <Skeleton className="h-16 w-full" />}
+                {aiError && !aiLoading && (
+                  <p className="text-xs text-red-600" role="alert">
+                    AI assistant unavailable
+                  </p>
+                )}
+                {aiDraft !== null && !aiLoading && (
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold text-slate-600">AI-generated draft. Review before saving.</p>
+                    <textarea
+                      aria-label="AI-generated description draft"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                      rows={3}
+                      value={aiDraft}
+                      onChange={(e) => setAiDraft(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          setProdForm({ ...prodForm, description: aiDraft })
+                          setAiDraft(null)
+                        }}
+                      >
+                        Use this draft
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setAiDraft(null)}>
+                        Discard
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
