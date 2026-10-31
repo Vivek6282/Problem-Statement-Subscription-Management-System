@@ -19,6 +19,10 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   maxWidth = 'lg',
 }) => {
+  // Unique ids so the dialog stays correctly labelled even if two are ever open.
+  const titleId = React.useId()
+  const descriptionId = React.useId()
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -48,7 +52,8 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         className={cn(
           'w-full bg-white rounded-2xl shadow-xl shadow-navy-950/10 border border-slate-200 overflow-hidden',
           maxWMap[maxWidth]
@@ -56,16 +61,17 @@ export const Modal: React.FC<ModalProps> = ({
       >
         <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-start justify-between gap-4">
           <div>
-            <h3 id="modal-title" className="text-base font-semibold tracking-tight text-slate-900">{title}</h3>
-            {description && <p className="text-xs text-slate-500 mt-1">{description}</p>}
+            <h3 id={titleId} className="text-base font-semibold tracking-tight text-slate-900">{title}</h3>
+            {description && <p id={descriptionId} className="text-xs text-slate-500 mt-1">{description}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="-mr-1.5 -mt-1 shrink-0 text-slate-400 hover:text-slate-700 rounded-full p-1.5 hover:bg-slate-100 transition-colors"
+            title="Close"
+            className="-mr-1.5 -mt-1 shrink-0 text-slate-400 hover:text-slate-700 rounded-full p-1.5 hover:bg-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
         <div className="p-6">{children}</div>

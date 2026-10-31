@@ -9,15 +9,20 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, label, error, helperText, options, children, ...props }, ref) => {
+  ({ className, label, error, helperText, options, children, id, ...props }, ref) => {
+    const generatedId = React.useId()
+    const selectId = id || generatedId
     return (
       <div className="w-full space-y-1.5">
         {label && (
-          <label className="block text-xs font-medium text-slate-700">
+          <label htmlFor={selectId} className="block text-xs font-medium text-slate-700">
             {label} {props.required && <span className="text-red-500">*</span>}
           </label>
         )}
         <select
+          id={selectId}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error || helperText ? `${selectId}-hint` : undefined}
           ref={ref}
           className={cn(
             'w-full h-10 px-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900',
@@ -36,8 +41,16 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
               ))
             : children}
         </select>
-        {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
-        {helperText && !error && <p className="text-xs text-slate-500">{helperText}</p>}
+        {error && (
+          <p id={`${selectId}-hint`} className="text-xs text-red-600 font-medium">
+            {error}
+          </p>
+        )}
+        {helperText && !error && (
+          <p id={`${selectId}-hint`} className="text-xs text-slate-500">
+            {helperText}
+          </p>
+        )}
       </div>
     )
   }
