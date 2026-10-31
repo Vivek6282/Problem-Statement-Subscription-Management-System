@@ -113,7 +113,7 @@ export const TeamPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Team &amp; Access</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Team &amp; Access</h1>
           <p className="text-xs text-slate-500 mt-1">Add internal staff and control who can sign in</p>
         </div>
         <Button onClick={openCreateModal}>

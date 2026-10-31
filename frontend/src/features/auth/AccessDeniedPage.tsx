@@ -26,7 +26,7 @@ export const AccessDeniedPage: React.FC<AccessDeniedProps> = ({ requiredRole }) 
           <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4">
             <ShieldAlert className="w-6 h-6" aria-hidden="true" />
           </div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tight">Access denied</h1>
+          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Access denied</h1>
           <p className="text-xs text-slate-500 mt-2">
             {requiredRole
               ? `This screen is available to ${requiredRole} only.`
