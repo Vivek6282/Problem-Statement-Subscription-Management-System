@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'apps.taxes',
     'apps.reports',
     'apps.audit',
+    'apps.assistant',
 ]
 
 MIDDLEWARE = [
@@ -160,7 +161,19 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_RATES': {
+        'ai': '20/hour',
+    },
 }
+
+# Optional AI assistant (admin-only drafts). Off by default; the core app works without it.
+AI_ENABLED = os.getenv('AI_ENABLED', 'False').lower() in ('true', '1', 'yes')
+AI_PROVIDER = os.getenv('AI_PROVIDER', 'fake').strip().lower()  # 'anthropic' or 'fake'
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')  # only used when AI_PROVIDER=anthropic
+AI_MODEL = os.getenv('AI_MODEL', '').strip()  # required for anthropic; no model is hard-coded
+AI_TIMEOUT_SECONDS = float(os.getenv('AI_TIMEOUT_SECONDS', '20'))
+AI_MAX_OUTPUT_TOKENS = int(os.getenv('AI_MAX_OUTPUT_TOKENS', '400'))
+AI_MAX_INPUT_CHARS = int(os.getenv('AI_MAX_INPUT_CHARS', '4000'))
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Brightloop Subscription Management API',
