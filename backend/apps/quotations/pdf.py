@@ -38,26 +38,19 @@ def generate_quotation_pdf(quotation):
     elements.append(Spacer(1, 15))
 
     # Line Items Table
+    from apps.subscriptions.pricing import price_document, quotation_specs
+    priced = price_document(quotation_specs(quotation), on_date=quotation.issue_date, plan=quotation.plan,
+                            document_discount=quotation.discount)
     table_data = [["Item / Description", "Qty", "Unit Price", "Discount", "Tax", "Total"]]
-    if quotation.plan:
+    for line in priced.lines:
+        variant_desc = f" ({line.spec.variant_name})" if line.spec.variant_name else ""
         table_data.append([
-            f"Plan: {quotation.plan.name} ({quotation.plan.get_billing_interval_display()})",
-            "1",
-            f"${quotation.plan.price:,.2f}",
-            "$0.00",
-            "$0.00",
-            f"${quotation.plan.price:,.2f}"
-        ])
-
-    for item in quotation.items.all():
-        variant_desc = f" ({item.variant.name})" if item.variant else ""
-        table_data.append([
-            f"{item.product.name}{variant_desc}",
-            str(item.quantity),
-            f"${item.unit_price:,.2f}",
-            f"${item.discount_amount:,.2f}",
-            f"{item.tax_percentage}%",
-            f"${item.line_total:,.2f}"
+            f"{line.spec.name}{variant_desc}",
+            str(line.spec.quantity),
+            f"${line.spec.unit_price:,.2f}",
+            f"${line.discount_total:,.2f}",
+            f"${line.tax:,.2f}",
+            f"${line.total:,.2f}"
         ])
 
     item_table = Table(table_data, colWidths=[220, 40, 75, 65, 55, 85])
@@ -74,10 +67,14 @@ def generate_quotation_pdf(quotation):
 
     # Summary Totals
     totals_data = [
-        ["Subtotal:", f"${quotation.subtotal:,.2f}"],
-        ["Discounts:", f"-${quotation.discount_amount:,.2f}"],
-        ["Taxes:", f"+${quotation.tax_amount:,.2f}"],
-        ["Total Quoted:", f"${quotation.total_amount:,.2f}"]
+        ["Subtotal:", f"${priced.subtotal:,.2f}"],
+        ["Discounts:", f"-${priced.discount_total:,.2f}"],
+    ]
+    for t in priced.tax_summary():
+        totals_data.append([f"{t['name']} ({t['rate']}%):", f"+${float(t['amount']):,.2f}"])
+    totals_data += [
+        ["Payment terms:", quotation.get_payment_terms_display()],
+        ["Total Quoted:", f"${priced.total:,.2f}"]
     ]
     totals_table = Table(totals_data, colWidths=[450, 90])
     totals_table.setStyle(TableStyle([
