@@ -7,8 +7,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / '.env')
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'brightloop-development-secret-key-insecure-only-for-dev-123456789')
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
+
+_INSECURE_DEV_KEY = 'brightloop-development-secret-key-insecure-only-for-dev-123456789'
+SECRET_KEY = os.getenv('SECRET_KEY', _INSECURE_DEV_KEY)
+if not DEBUG and SECRET_KEY in (_INSECURE_DEV_KEY, '') :
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured('Set a strong SECRET_KEY environment variable when DEBUG is off.')
 
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0').split(',') if host.strip()]
 
@@ -147,7 +152,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'DEFAULT_PAGINATION_CLASS': 'config.pagination.StandardPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
@@ -155,6 +160,11 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'TEST_REQUEST_DEFAULT_FORMAT': 'json',  # the SPA always sends JSON (HTML-form checkboxes would default to false)
+    # Brute-force protection for login / register / password-reset endpoints
+    'DEFAULT_THROTTLE_RATES': {
+        'auth': os.getenv('AUTH_THROTTLE_RATE', '30/min'),
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -165,6 +175,13 @@ SPECTACULAR_SETTINGS = {
     'COMPONENT_SPLIT_REQUEST': True,
 }
 
+# Password reset links: time-limited (default 1 hour) and always built from a trusted base URL
+PASSWORD_RESET_TIMEOUT = int(os.getenv('PASSWORD_RESET_TIMEOUT_SECONDS', '3600'))
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')
+
+# New recurring invoices are created CONFIRMED (False = create as DRAFT for manual review)
+AUTO_CONFIRM_INVOICES = os.getenv('AUTO_CONFIRM_INVOICES', 'True').lower() in ('true', '1', 'yes')
+
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
@@ -173,7 +190,31 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+# Scheduled jobs: billing must never depend on someone opening the app.
+# Both tasks are idempotent, so running them more often than needed is safe.
+from celery.schedules import crontab  # noqa: E402
+CELERY_BEAT_SCHEDULE = {
+    'run-recurring-billing': {
+        'task': 'apps.subscriptions.tasks.run_recurring_billing',
+        'schedule': crontab(minute=int(os.getenv('BILLING_CRON_MINUTE', '5')), hour=int(os.getenv('BILLING_CRON_HOUR', '0'))),
+    },
+    'daily-housekeeping': {
+        'task': 'apps.subscriptions.tasks.run_daily_housekeeping',
+        'schedule': crontab(minute=30, hour=0),
+    },
+}
+
 # Email Configuration
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'billing@brightloop.io')
 
+
+# Fast password hashing for the automated test run only
+import sys  # noqa: E402
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
