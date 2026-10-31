@@ -105,6 +105,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
+
+# Reporting: one display currency (no conversion) and the timezone that defines "today" and month
+# boundaries for admin reports. Django TIME_ZONE stays UTC.
+CURRENCY_CODE = os.getenv('CURRENCY_CODE', 'USD').strip().upper() or 'USD'
+BUSINESS_TIMEZONE = os.getenv('BUSINESS_TIMEZONE', 'Asia/Kolkata').strip() or 'Asia/Kolkata'
 USE_I18N = True
 USE_TZ = True
 

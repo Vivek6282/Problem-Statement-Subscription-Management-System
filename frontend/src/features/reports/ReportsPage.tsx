@@ -28,7 +28,7 @@ import {
   Line,
 } from 'recharts'
 import { api } from '@/lib/api'
-import { formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
+import { formatCompactCurrency, formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -235,7 +235,7 @@ export const ReportsPage: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={mapTrendForChart(revenueTrends)} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <XAxis dataKey="month" stroke="#8A9585" fontSize={10} tickLine={false} />
-                <YAxis stroke="#8A9585" fontSize={10} tickLine={false} tickFormatter={(v) => `$${v}`} />
+                <YAxis stroke="#8A9585" fontSize={10} tickLine={false} tickFormatter={(v) => formatCompactCurrency(v)} />
                 <Tooltip
                   formatter={(val: any) => [formatCurrency(val), '']}
                   contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #DFE4DC', borderRadius: '12px', color: '#1F3327', fontSize: '12px' }}

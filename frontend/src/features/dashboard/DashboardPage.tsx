@@ -26,7 +26,7 @@ import {
   Cell,
 } from 'recharts'
 import { api } from '@/lib/api'
-import { formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
+import { formatCompactCurrency, formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
 import type { DashboardMetrics } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { StatusText } from '@/components/ui/StatusText'
@@ -356,7 +356,7 @@ export const DashboardPage: React.FC = () => {
                   tickLine={false}
                   axisLine={false}
                   width={52}
-                  tickFormatter={(v) => `$${Number(v).toLocaleString('en-US', { notation: 'compact' })}`}
+                  tickFormatter={(v) => formatCompactCurrency(v)}
                 />
                 <Tooltip
                   cursor={{ fill: '#F2F5EE' }}

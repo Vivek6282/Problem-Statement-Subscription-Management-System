@@ -12,3 +12,34 @@ Each entry is a default applied by Member 1. Status "awaiting approval" means Me
 - One source of truth: `MRR_FACTORS` in `apps/subscriptions/models.py`, used by `Subscription.normalized_mrr_exact` and the SQL aggregation (`mrr_case`) in `apps/reports/views.py`.
 - Rounding: totals are summed unrounded and rounded once to 2 decimals. The per-subscription `normalized_mrr` is rounded for display only, so a list of rows can differ from the total by a few cents.
 - Replaces the earlier flat 4.33 weekly factor, which was never approved.
+
+## Currency and business timezone
+
+- Status: default applied (assumption: USD, Asia/Kolkata), awaiting approval.
+- `CURRENCY_CODE` (default `USD`) and `BUSINESS_TIMEZONE` (default `Asia/Kolkata`) come from the environment. Django `TIME_ZONE` stays UTC. No amounts are converted; the code is only a display label.
+- `apps/reports/business_time.py` provides `business_today()`, `business_month_start()` and `business_month_end()`. All report views use them.
+- `GET /api/v1/reports/config/` (authenticated) returns `currency_code`, `business_timezone` and `business_today`; the frontend reads it once after sign-in.
+
+### Business timezone: Member 3 to adopt
+
+These non-report modules still use server-local `datetime.date.today()` and were deliberately not edited by Member 1:
+- `apps/taxes/models.py` line 44
+- `apps/plans/views.py` line 41
+- `apps/quotations/models.py` line 78
+- `apps/quotations/views.py` line 95
+- `apps/invoices/models.py` line 67
+- `apps/invoices/models.py` line 76
+- `apps/invoices/views.py` line 50
+- `apps/discounts/serializers.py` line 64
+- `apps/discounts/models.py` line 69
+- `apps/payments/services.py` line 21
+- `apps/payments/models.py` line 60
+- `apps/accounts/management/commands/seed_demo_data.py` line 241
+- `apps/accounts/test_access_and_reset.py` line 195
+- `apps/subscriptions/management/commands/run_billing_cycle.py` line 24
+- `apps/subscriptions/billing.py` line 51
+- `apps/subscriptions/billing.py` line 217
+- `apps/subscriptions/models.py` line 87
+- `apps/subscriptions/views.py` line 136
+- `apps/subscriptions/views.py` line 151
+- `apps/subscriptions/tasks.py` line 10

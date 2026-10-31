@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { Fragment, useEffect, useState, type ComponentProps } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Check, X, Zap } from 'lucide-react'
 import { useAuth } from '@/features/auth/AuthContext'
 import { api } from '@/lib/api'
+import { getCurrencyCode, setCurrencyCode } from '@/lib/utils'
 import { CustomerLayout } from './CustomerLayout'
 import { WorkspaceShell } from './WorkspaceShell'
 import { navGroups } from './navigation'
@@ -50,6 +51,33 @@ function RunBillingButton() {
   )
 }
 
+/** Loads the configured display currency once after sign-in; keeps USD if the request fails. */
+function StaffWorkspace(props: ComponentProps<typeof WorkspaceShell>) {
+  const [currency, setCurrency] = useState(getCurrencyCode())
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get('/reports/config/')
+      .then((res) => {
+        if (cancelled) return
+        setCurrencyCode(res.data?.currency_code)
+        setCurrency(getCurrencyCode())
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Remount once if the currency differs from the default so already-rendered amounts reformat.
+  return (
+    <Fragment key={currency}>
+      <WorkspaceShell {...props} />
+    </Fragment>
+  )
+}
+
 export const AppLayout: React.FC = () => {
   const { isAuthenticated, isLoading, user, isStaff, isAdmin } = useAuth()
 
@@ -87,7 +115,7 @@ export const AppLayout: React.FC = () => {
   const role = user?.role ? user.role.charAt(0) + user.role.slice(1).toLowerCase() : 'Staff'
 
   return (
-    <WorkspaceShell
+    <StaffWorkspace
       rootLabel="Staff workspace"
       groups={groups}
       accountNote={`${role} account`}

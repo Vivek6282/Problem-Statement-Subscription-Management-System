@@ -189,3 +189,34 @@ class RevenueTrendWireFormatTestCase(TestCase):
             self.assertIsInstance(point['billed'], str)
             self.assertIsInstance(point['collected'], str)
             self.assertRegex(point['billed'], r'^\d+\.\d{2}$')
+
+
+class BusinessConfigTestCase(TestCase):
+    def test_config_view_returns_settings_values(self):
+        from django.test import override_settings
+        user = User.objects.create_user(email='cfg@brightloop.io', password='AdminPassword@2026', role=Role.STAFF)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        with override_settings(CURRENCY_CODE='EUR', BUSINESS_TIMEZONE='Europe/Paris'):
+            res = client.get('/api/v1/reports/config/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['currency_code'], 'EUR')
+        self.assertEqual(res.data['business_timezone'], 'Europe/Paris')
+        self.assertIn('business_today', res.data)
+
+    def test_config_requires_authentication(self):
+        self.assertIn(APIClient().get('/api/v1/reports/config/').status_code, (401, 403))
+
+    def test_business_today_near_midnight_utc_uses_business_timezone(self):
+        from unittest import mock
+        from django.test import override_settings
+        from django.utils import timezone as dj_tz
+        from apps.reports.business_time import business_today, business_month_start, business_month_end
+        # 2026-03-31 20:30 UTC is already 2026-04-01 02:00 in Asia/Kolkata (UTC+5:30).
+        fixed = datetime.datetime(2026, 3, 31, 20, 30, tzinfo=datetime.timezone.utc)
+        with override_settings(BUSINESS_TIMEZONE='Asia/Kolkata'), mock.patch.object(dj_tz, 'now', return_value=fixed):
+            self.assertEqual(business_today(), datetime.date(2026, 4, 1))
+        with override_settings(BUSINESS_TIMEZONE='UTC'), mock.patch.object(dj_tz, 'now', return_value=fixed):
+            self.assertEqual(business_today(), datetime.date(2026, 3, 31))
+        self.assertEqual(business_month_start(datetime.date(2026, 2, 17)), datetime.date(2026, 2, 1))
+        self.assertEqual(business_month_end(datetime.date(2026, 2, 17)), datetime.date(2026, 2, 28))

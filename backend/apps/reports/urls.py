@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     DashboardMetricsView,
     PublicSummaryView,
+    ConfigView,
     MRRBreakdownView,
     RevenueTrendsView,
     SubscriptionsByStatusView,
@@ -11,6 +12,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('config/', ConfigView.as_view(), name='reports_config'),
     path('public-summary/', PublicSummaryView.as_view(), name='reports_public_summary'),
     path('dashboard/', DashboardMetricsView.as_view(), name='reports_dashboard'),
     path('mrr-breakdown/', MRRBreakdownView.as_view(), name='reports_mrr_breakdown'),

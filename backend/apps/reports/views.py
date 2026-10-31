@@ -2,6 +2,7 @@ import csv
 import datetime
 from decimal import Decimal
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.http import HttpResponse
 from django.db.models import (
     Sum,
@@ -24,6 +25,7 @@ from apps.invoices.models import Invoice, InvoiceStatus, InvoiceItem
 from apps.payments.models import Payment, PaymentMethod
 from apps.plans.models import Plan, BillingInterval
 from apps.products.models import Product
+from .business_time import business_today
 
 
 def sanitize_csv_cell(val):
@@ -82,11 +84,23 @@ def calculate_mrr_sql(qs=None):
 
 
 def get_overdue_invoices_queryset():
-    today = datetime.date.today()
+    today = business_today()
     return Invoice.objects.filter(
         Q(status=InvoiceStatus.OVERDUE) |
         (Q(due_date__lt=today) & Q(balance_due__gt=0) & ~Q(status__in=[InvoiceStatus.PAID, InvoiceStatus.CANCELLED, 'VOID']))
     )
+
+
+class ConfigView(views.APIView):
+    """Display currency and business calendar for the signed-in user. No conversion happens."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            'currency_code': settings.CURRENCY_CODE,
+            'business_timezone': settings.BUSINESS_TIMEZONE,
+            'business_today': business_today().isoformat(),
+        })
 
 
 class DashboardMetricsView(views.APIView):
@@ -98,7 +112,7 @@ class DashboardMetricsView(views.APIView):
     permission_classes = [IsStaffOrAdmin]
 
     def get(self, request):
-        today = datetime.date.today()
+        today = business_today()
         first_of_month = today.replace(day=1)
         next_week = today + datetime.timedelta(days=7)
 
@@ -296,7 +310,7 @@ class RevenueTrendsView(views.APIView):
 
     def get(self, request):
         months_count = min(max(int(request.query_params.get('months', 6)), 1), 24)
-        today = datetime.date.today()
+        today = business_today()
         trends = []
 
         for i in range(months_count - 1, -1, -1):
@@ -438,7 +452,7 @@ class DrillDownView(views.APIView):
                     'amount': f"{inv.balance_due:.2f}",
                     'date': inv.due_date.isoformat(),
                     'status': inv.status,
-                    'details': f"Total: ${inv.total_amount:.2f}, Paid: ${inv.paid_amount:.2f}"
+                    'details': f"Total: {inv.total_amount:.2f}, Paid: {inv.paid_amount:.2f}"
                 })
 
         elif metric in ['revenue_collected', 'revenue', 'payments']:
