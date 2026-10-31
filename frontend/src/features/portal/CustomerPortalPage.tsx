@@ -20,22 +20,7 @@ import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Subscription, Invoice, Payment } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
-
-function Status({ value }: { value: string }) {
-  const tone = ['ACTIVE', 'PAID'].includes(value)
-    ? 'positive'
-    : ['PAUSED', 'PARTIALLY_PAID', 'CONFIRMED'].includes(value)
-      ? 'pending'
-      : value === 'OVERDUE'
-        ? 'overdue'
-        : 'neutral'
-  return (
-    <span className={`bl-status bl-status-${tone}`}>
-      <span />
-      {value.replaceAll('_', ' ').toLowerCase()}
-    </span>
-  )
-}
+import { StatusText } from '@/components/ui/StatusText'
 
 export const CustomerPortalPage = () => {
   const { user } = useAuth()
@@ -225,7 +210,7 @@ export const CustomerPortalPage = () => {
           <strong>
             {loadError
               ? '—'
-              : activeSubscriptions.length.toString().padStart(2, '0')}
+              : activeSubscriptions.length}
           </strong>
           <small>Your plans, all in one place</small>
         </div>
@@ -313,7 +298,7 @@ export const CustomerPortalPage = () => {
                     <h3>
                       {subscription.plan_details?.name || 'Subscription plan'}
                     </h3>
-                    <Status value={subscription.status} />
+                    <StatusText kind="subscription" value={subscription.status} />
                   </div>
                 </div>
                 <div className="bl-subscription-price">
@@ -442,7 +427,7 @@ export const CustomerPortalPage = () => {
                       {formatCurrency(invoice.balance_due)}
                     </td>
                     <td>
-                      <Status value={invoice.status} />
+                      <StatusText kind="invoice" value={invoice.status} />
                     </td>
                     <td>
                       <button

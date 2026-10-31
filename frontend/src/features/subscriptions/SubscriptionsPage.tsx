@@ -14,6 +14,7 @@ import {
   DollarSign,
   AlertCircle,
   Eye,
+  X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -151,6 +152,11 @@ export const SubscriptionsPage: React.FC = () => {
 
   // Lifecycle transitions
   const handleTransition = async (sub: Subscription, actionName: 'activate' | 'pause' | 'resume' | 'close' | 'trigger_billing') => {
+    if (
+      actionName === 'close' &&
+      !window.confirm(`Close subscription ${sub.subscription_number}? This can’t be undone.`)
+    )
+      return
     setActionNotice(null)
     try {
       const res = await api.post(`/subscriptions/${sub.id}/${actionName}/`)
@@ -189,8 +195,14 @@ export const SubscriptionsPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Subscriptions Management</h1>
-          <p className="text-xs text-slate-500 mt-1">Lifecycle state machine: Draft → Quotation → Confirmed → Active → Closed</p>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            {isStaff ? 'Subscriptions Management' : 'Your subscriptions'}
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {isStaff
+              ? 'Lifecycle state machine: Draft → Quotation → Confirmed → Active → Closed'
+              : 'Your plans, what they cost and when they renew.'}
+          </p>
         </div>
         {isStaff && (
           <Button onClick={openCreateModal}>
@@ -201,9 +213,21 @@ export const SubscriptionsPage: React.FC = () => {
       </div>
 
       {actionNotice && (
-        <div className="p-3 bg-navy-950 text-white rounded-xl text-xs font-semibold flex items-center justify-between border border-slate-700 animate-in fade-in">
+        <div
+          className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm ${
+            actionNotice.startsWith('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
+          }`}
+          role={actionNotice.startsWith('Error') ? 'alert' : 'status'}
+        >
           <span>{actionNotice}</span>
-          <button onClick={() => setActionNotice(null)} className="text-slate-400 hover:text-white">✕</button>
+          <button
+            type="button"
+            onClick={() => setActionNotice(null)}
+            className="rounded-full p-1 opacity-70 hover:opacity-100"
+            aria-label="Dismiss notification"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -247,8 +271,14 @@ export const SubscriptionsPage: React.FC = () => {
         </div>
       ) : subscriptions.length === 0 ? (
         <EmptyState
-          title="No Subscriptions Found"
-          description={search ? `No subscriptions matched "${search}".` : 'No active subscriptions found.'}
+          title={search ? 'No matches' : 'No subscriptions yet'}
+          description={
+            search
+              ? `No subscriptions matched "${search}".`
+              : isStaff
+                ? 'Create a subscription to start billing a customer.'
+                : 'Your plans will appear here once they’re set up.'
+          }
           actionLabel={isStaff ? 'New Subscription' : undefined}
           onAction={isStaff ? openCreateModal : undefined}
         />
@@ -259,13 +289,13 @@ export const SubscriptionsPage: React.FC = () => {
               <thead className="bg-slate-50/80 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-bold">
                 <tr>
                   <th className="py-3 px-4">Subscription #</th>
-                  <th className="py-3 px-4">Client</th>
+                  {isStaff && <th className="py-3 px-4">Client</th>}
                   <th className="py-3 px-4">Plan</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Next Billing</th>
                   <th className="py-3 px-4">Recurring Total</th>
-                  <th className="py-3 px-4">MRR</th>
-                  <th className="py-3 px-4 text-right">Lifecycle Actions</th>
+                  {isStaff && <th className="py-3 px-4">MRR</th>}
+                  <th className="py-3 px-4 text-right">{isStaff ? 'Lifecycle Actions' : <span className="sr-only">Actions</span>}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -274,10 +304,12 @@ export const SubscriptionsPage: React.FC = () => {
                     <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                       {s.subscription_number}
                     </td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-800">{s.customer_details?.company || s.customer_details?.name}</div>
-                      <div className="text-[11px] text-slate-400">{s.customer_details?.name}</div>
-                    </td>
+                    {isStaff && (
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-800">{s.customer_details?.company || s.customer_details?.name}</div>
+                        <div className="text-[11px] text-slate-400">{s.customer_details?.name}</div>
+                      </td>
+                    )}
                     <td className="py-3.5 px-4">
                       <span className="font-semibold text-slate-700">{s.plan_details?.name}</span>
                       <div className="text-[10px] text-slate-400 font-medium">({s.plan_details?.interval_display})</div>
@@ -291,15 +323,17 @@ export const SubscriptionsPage: React.FC = () => {
                     <td className="py-3.5 px-4 font-bold text-slate-900">
                       {formatCurrency(s.recurring_subtotal)}
                     </td>
-                    <td className="py-3.5 px-4 font-bold text-primary">
-                      {formatCurrency(s.normalized_mrr)}
-                    </td>
+                    {isStaff && (
+                      <td className="py-3.5 px-4 font-bold text-primary">
+                        {formatCurrency(s.normalized_mrr)}
+                      </td>
+                    )}
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => setDetailSub(s)}
                           className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary-50 rounded-lg transition-colors"
-                          title="View Details"
+                          title="View Details" aria-label="View Details"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -313,29 +347,33 @@ export const SubscriptionsPage: React.FC = () => {
 
                         {s.status === 'ACTIVE' && (
                           <>
+                            {(isStaff || s.plan_details?.allow_pause) && (
                             <button
                               onClick={() => handleTransition(s, 'pause')}
                               className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                              title="Pause Subscription"
+                              title="Pause Subscription" aria-label="Pause Subscription"
                             >
                               <Pause className="w-4 h-4" />
                             </button>
+                            )}
                             {isStaff && (
                               <button
                                 onClick={() => handleTransition(s, 'trigger_billing')}
                                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                title="Force Bill Now"
+                                title="Force Bill Now" aria-label="Force Bill Now"
                               >
                                 <Zap className="w-4 h-4" />
                               </button>
                             )}
+                            {(isStaff || s.plan_details?.allow_early_close) && (
                             <button
                               onClick={() => handleTransition(s, 'close')}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Close / Cancel"
+                              title="Close / Cancel" aria-label="Close / Cancel"
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
+                            )}
                           </>
                         )}
 
@@ -344,14 +382,14 @@ export const SubscriptionsPage: React.FC = () => {
                             <button
                               onClick={() => handleTransition(s, 'resume')}
                               className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                              title="Resume Subscription"
+                              title="Resume Subscription" aria-label="Resume Subscription"
                             >
                               <Play className="w-4 h-4 fill-current" />
                             </button>
                             <button
                               onClick={() => handleTransition(s, 'close')}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Close Subscription"
+                              title="Close Subscription" aria-label="Close Subscription"
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
@@ -362,7 +400,7 @@ export const SubscriptionsPage: React.FC = () => {
                           <button
                             onClick={() => handleTransition(s, 'activate')}
                             className="p-1.5 text-primary hover:bg-primary-50 rounded-lg transition-colors"
-                            title="Renew Subscription"
+                            title="Renew Subscription" aria-label="Renew Subscription"
                           >
                             <RotateCcw className="w-4 h-4" />
                           </button>
