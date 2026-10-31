@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { ShieldCheck, Search, Filter, Clock, User as UserIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatDateTime } from '@/lib/utils'
@@ -7,20 +7,26 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
 import { EmptyState } from '@/components/ui/EmptyState'
 
 export const AuditPage: React.FC = () => {
   const [events, setEvents] = useState<AuditEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
 
   const fetchAuditEvents = async () => {
     setIsLoading(true)
     try {
-      let url = '/audit/'
-      if (search) url += `?search=${encodeURIComponent(search)}`
+      const params = new URLSearchParams({ page: String(page) })
+      if (search) params.append('search', search)
+      const url = `/audit/?${params.toString()}`
       const res = await api.get(url)
       setEvents(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -29,8 +35,15 @@ export const AuditPage: React.FC = () => {
   }
 
   useEffect(() => {
+    const filterKey = String(search)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchAuditEvents()
-  }, [search])
+  }, [search, page])
 
   return (
     <div className="space-y-6 pb-12">
@@ -103,6 +116,7 @@ export const AuditPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
     </div>

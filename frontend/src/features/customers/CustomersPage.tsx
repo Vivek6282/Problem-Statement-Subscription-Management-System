@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Users,
   Plus,
@@ -16,7 +16,7 @@ import {
   FileText,
   CreditCard,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, getApiError } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Customer, Subscription, Invoice, Payment } from '@/types'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -26,10 +26,18 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { TableControls } from '@/components/ui/TableControls'
 
 export const CustomersPage: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const [ordering, setOrdering] = useState('-created_at')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL')
 
@@ -64,10 +72,15 @@ export const CustomersPage: React.FC = () => {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (statusFilter !== 'ALL') params.append('status', statusFilter)
+      params.append('page', String(page))
+      if (ordering) params.append('ordering', ordering)
+      if (dateFrom) params.append('created_at__date__gte', dateFrom)
+      if (dateTo) params.append('created_at__date__lte', dateTo)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
       setCustomers(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error('Failed to load customers:', err)
     } finally {
@@ -76,8 +89,15 @@ export const CustomersPage: React.FC = () => {
   }
 
   useEffect(() => {
+    const filterKey = String(search) + '|' + String(statusFilter) + '|' + String(ordering) + '|' + String(dateFrom) + '|' + String(dateTo)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchCustomers()
-  }, [search, statusFilter])
+  }, [search, statusFilter, ordering, dateFrom, dateTo, page])
 
   const openCreateModal = () => {
     setEditingCustomer(null)
@@ -126,7 +146,7 @@ export const CustomersPage: React.FC = () => {
       setIsModalOpen(false)
       fetchCustomers()
     } catch (err: any) {
-      setFormError(err?.response?.data?.email?.[0] || err?.response?.data?.detail || 'Failed to save customer.')
+      setFormError(getApiError(err, 'Failed to save customer.'))
     } finally {
       setIsSaving(false)
     }
@@ -207,6 +227,18 @@ export const CustomersPage: React.FC = () => {
               <option value="ARCHIVED">Archived Only</option>
             </select>
           </div>
+        </CardContent>
+        <CardContent className="px-4 pb-4 pt-3 border-t border-slate-100">
+          <TableControls
+            orderingOptions={[{ label: 'Newest first', value: '-created_at' }, { label: 'Name A–Z', value: 'name' }, { label: 'Company A–Z', value: 'company' }]}
+            ordering={ordering}
+            onOrderingChange={setOrdering}
+            dateLabel="Created"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+          />
         </CardContent>
       </Card>
 
@@ -304,6 +336,7 @@ export const CustomersPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
