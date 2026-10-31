@@ -3,7 +3,7 @@ import { Outlet, Navigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { TopNav } from './TopNav'
 import { useAuth } from '@/features/auth/AuthContext'
-import { Skeleton } from '@/components/ui/Skeleton'
+import { CustomerLayout } from './CustomerLayout'
 
 export const AppLayout: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth()
@@ -14,7 +14,9 @@ export const AppLayout: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="space-y-4 w-72 text-center">
           <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-slate-500 font-medium">Authenticating Brightloop session...</p>
+          <p className="text-sm text-slate-500 font-medium">
+            Authenticating Brightloop session...
+          </p>
         </div>
       </div>
     )
@@ -29,6 +31,8 @@ export const AppLayout: React.FC = () => {
     return <Navigate to="/portal" replace />
   }
 
+  if (user?.role === 'CUSTOMER') return <CustomerLayout />
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
@@ -41,4 +45,3 @@ export const AppLayout: React.FC = () => {
     </div>
   )
 }
-

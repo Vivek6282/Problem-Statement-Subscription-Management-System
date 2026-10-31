@@ -498,17 +498,14 @@ export const LandingPage = () => {
             {features.map(
               ({ icon: Icon, number, title, description, detail }) => (
                 <article className="lp-feature" key={number}>
-                  <div className="lp-feature-top">
-                    <span className="lp-feature-icon">
-                      <Icon size={23} strokeWidth={1.5} />
-                    </span>
-                    <span>{number}</span>
+                  <span className="lp-feature-number">{number}</span>
+                  <div className="lp-feature-title">
+                    <Icon size={24} strokeWidth={1.4} aria-hidden="true" />
+                    <h3>{title}</h3>
                   </div>
-                  <h3>{title}</h3>
-                  <p>{description}</p>
-                  <div className="lp-feature-detail">
-                    <Check size={14} />
-                    {detail}
+                  <div className="lp-feature-copy">
+                    <p>{description}</p>
+                    <span className="lp-feature-detail">{detail}</span>
                   </div>
                 </article>
               ),
@@ -532,81 +529,61 @@ export const LandingPage = () => {
                 From your first plan to your next payment.
                 <br />A straightforward process, every step of the way.
               </p>
-              <div className="lp-steps">
-                {steps.map((item, index) => (
-                  <button
-                    key={item.title}
-                    type="button"
-                    className={`lp-step ${activeStep === index ? 'is-active' : ''}`}
-                    aria-expanded={activeStep === index}
-                    aria-controls="lp-step-preview"
-                    onClick={() => setActiveStep(index)}
-                  >
-                    <span className="lp-step-number">0{index + 1}</span>
-                    <span>
-                      <strong>{item.title}</strong>
-                      {activeStep === index && (
-                        <span className="lp-step-description">
-                          {item.description}
-                        </span>
-                      )}
-                    </span>
-                    <ArrowUpRight size={18} />
-                  </button>
-                ))}
-              </div>
             </div>
-            <div className="lp-workflow-visual">
-              <div
-                className="lp-plan-card"
-                id="lp-step-preview"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                <div className="lp-plan-header">
+            <div className="lp-steps" aria-label="Explore the billing process">
+              {steps.map((item, index) => (
+                <button
+                  key={item.title}
+                  type="button"
+                  className={`lp-step ${activeStep === index ? 'is-active' : ''}`}
+                  aria-pressed={activeStep === index}
+                  aria-controls="lp-step-preview"
+                  onClick={() => setActiveStep(index)}
+                >
+                  <span className="lp-step-number">0{index + 1}</span>
                   <span>
-                    <Layers size={16} /> {step.label}
+                    <strong>{item.title}</strong>
+                    <span className="lp-step-description">
+                      {item.description}
+                    </span>
                   </span>
-                  <span className="lp-plan-example">EXAMPLE</span>
-                </div>
+                  <ArrowUpRight size={18} />
+                </button>
+              ))}
+            </div>
+            <div
+              className="lp-flow-example"
+              id="lp-step-preview"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <div className="lp-flow-summary">
+                <span className="lp-eyebrow">
+                  {step.label} · EXAMPLE 0{activeStep + 1}
+                </span>
                 <h3>{step.name}</h3>
-                <div className="lp-plan-price">
+                <div className="lp-flow-value">
                   {step.value}
                   <span>{step.suffix}</span>
                 </div>
-                <div className="lp-plan-rows">
-                  {step.rows.map(([label, value]) => (
-                    <div key={label}>
-                      <span>{label}</span>
-                      <strong>
-                        {value === 'Active' || value === 'Paid' ? (
-                          <span className="lp-active-badge">
-                            <span className="lp-status-dot" />
-                            {value}
-                          </span>
-                        ) : (
-                          value
-                        )}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-                <div className="lp-plan-footer">
-                  <CircleCheck size={17} />
-                  {step.footer}
-                </div>
               </div>
-              <span className="lp-workflow-note">
-                A good rhythm for your recurring revenue.
-              </span>
+              <dl className="lp-flow-details">
+                {step.rows.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="lp-flow-note">
+                <CircleCheck size={24} strokeWidth={1.3} />
+                <p>{step.footer}</p>
+              </div>
             </div>
           </div>
         </section>
-        <section
-          className="lp-container lp-final-section"
-          aria-labelledby="cta-title"
-        >
-          <div className="lp-final-cta">
+        <section className="lp-final-section" aria-labelledby="cta-title">
+          <div className="lp-container lp-final-cta">
             <div>
               <span className="lp-eyebrow">MAKE ROOM FOR WHAT’S NEXT</span>
               <h2 id="cta-title">
