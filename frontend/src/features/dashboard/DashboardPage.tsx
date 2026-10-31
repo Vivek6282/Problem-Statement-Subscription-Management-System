@@ -7,7 +7,6 @@ import {
   CalendarClock,
   CircleDollarSign,
   CreditCard,
-  Download,
   FileText,
   RefreshCw,
   Repeat,
@@ -26,11 +25,12 @@ import {
   Cell,
 } from 'recharts'
 import { api } from '@/lib/api'
-import { formatCompactCurrency, formatCurrency, formatDate, mapTrendForChart } from '@/lib/utils'
+import { formatCompactCurrency, formatCurrency, formatDate, formatDateTime, mapTrendForChart } from '@/lib/utils'
+import { describePeriod, useReportParams, type DrillMetric } from '@/lib/reportFilters'
+import { DrillDownModal } from '@/features/reports/DrillDownModal'
 import type { DashboardMetrics } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { StatusText } from '@/components/ui/StatusText'
-import { Modal } from '@/components/ui/Modal'
 import '@/styles/brightloop.css'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -62,22 +62,6 @@ const daysOverdue = (dueDate: string) => {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-interface DrillDownRecord {
-  id: number
-  reference: string
-  customer_name: string
-  amount: string
-  date: string
-  status: string
-  details: string
-}
-
-interface DrillDownTarget {
-  metric: 'mrr' | 'active_subscriptions' | 'overdue_invoices' | 'revenue_collected'
-  title: string
-  listUrl: string
-}
 
 function SectionHeading({
   index,
@@ -111,53 +95,12 @@ export const DashboardPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  // Drilldown: the records behind a key figure, with CSV export.
-  const [drill, setDrill] = useState<DrillDownTarget | null>(null)
-  const [drillRecords, setDrillRecords] = useState<DrillDownRecord[]>([])
-  const [isDrillLoading, setIsDrillLoading] = useState(false)
-  const [drillError, setDrillError] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [exportError, setExportError] = useState<string | null>(null)
+  // Filters, the open drill-down and its page live in the URL (shareable, survive refresh and Back).
+  const { filters, drill, page, update } = useReportParams()
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
 
-  const openDrillDown = async (target: DrillDownTarget) => {
-    setDrill(target)
-    setDrillRecords([])
-    setDrillError(false)
-    setIsDrillLoading(true)
-    try {
-      const res = await api.get(`/reports/drilldown/?metric=${target.metric}&page_size=10`)
-      setDrillRecords(res.data.results || [])
-    } catch (err) {
-      console.error('Failed to load drilldown:', err)
-      setDrillError(true)
-    } finally {
-      setIsDrillLoading(false)
-    }
-  }
-
-  const exportDrillDown = async () => {
-    if (!drill) return
-    setIsExporting(true)
-    setExportError(null)
-    try {
-      const res = await api.get(`/reports/export/?type=drilldown&metric=${drill.metric}`, {
-        responseType: 'blob',
-      })
-      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `brightloop_${drill.metric}_drilldown.csv`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch (err) {
-      console.error('Failed to export drilldown CSV:', err)
-      setExportError('The export failed. Try again in a moment.')
-    } finally {
-      setIsExporting(false)
-    }
-  }
+  const openDrillDown = (metric: DrillMetric) => update({ drill: metric, page: null })
+  const closeDrillDown = () => update({ drill: null, page: null })
 
   const fetchDashboardData = async () => {
     setIsLoading(true)
@@ -165,6 +108,7 @@ export const DashboardPage: React.FC = () => {
     try {
       const res = await api.get<DashboardMetrics>('/reports/dashboard/')
       setData(res.data)
+      setLastUpdated(res.data.generated_at ?? new Date().toISOString())
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err)
       setLoadError(true)
@@ -227,7 +171,10 @@ export const DashboardPage: React.FC = () => {
         {heading}
         <div className="bl-notice bl-notice-error" role="alert">
           <AlertCircle size={18} />
-          <span>We couldn’t load the dashboard. Check that the API is running, then refresh.</span>
+          <span>We couldn’t load the dashboard. Check that the API is running, then retry.</span>
+          <button type="button" className="bl-refresh" onClick={fetchDashboardData}>
+            <RefreshCw size={14} /> Retry
+          </button>
         </div>
       </div>
     )
@@ -244,6 +191,20 @@ export const DashboardPage: React.FC = () => {
   } = data
   const totalSubscriptions = subscription_distribution.reduce((sum, s) => sum + s.count, 0)
   const overdueAmount = metrics.overdue_amount ?? 0
+  const cardCounts: Partial<Record<DrillMetric, number>> = {
+    active_subscriptions: metrics.active_subscriptions,
+    mrr: metrics.active_subscriptions,
+    overdue_invoices: metrics.overdue_count,
+    outstanding: metrics.outstanding_count,
+    revenue_collected: metrics.revenue_collected_count,
+    billed: metrics.billed_this_month_count,
+  }
+  // The month cards cover the 1st of the month to the as-of date, so open the detail with those dates.
+  const openMonthDrillDown = (metric: DrillMetric) => {
+    const asOf = data.as_of_date
+    if (!asOf) return openDrillDown(metric)
+    update({ drill: metric, page: null, start_date: `${asOf.slice(0, 8)}01`, end_date: asOf })
+  }
 
   return (
     <div className="bl-portal">
@@ -252,18 +213,28 @@ export const DashboardPage: React.FC = () => {
       {loadError && (
         <div className="bl-notice bl-notice-error" role="alert">
           <AlertCircle size={18} />
-          <span>We couldn’t refresh the dashboard. Showing the last figures that loaded.</span>
+          <span>
+            Showing earlier data{lastUpdated ? ` (updated ${formatDateTime(lastUpdated)})` : ''}. The refresh failed.
+          </span>
+          <button type="button" onClick={fetchDashboardData} aria-label="Retry loading the dashboard">
+            <RefreshCw size={16} />
+          </button>
         </div>
       )}
 
-      <section className="bl-overview-stats is-four" aria-label="Key figures">
+      <p className="bl-muted mt-4 text-sm" data-testid="report-context">
+        Currency {data.currency_code ?? 'USD'} · Period {describePeriod(filters)} · As of{' '}
+        {data.generated_at ? formatDateTime(data.generated_at) : data.as_of_date || '—'}
+      </p>
+
+      <section className="bl-overview-stats is-four" aria-label="Recurring revenue and receivables">
         <div>
           <span>
-            <Repeat size={16} /> Monthly recurring revenue
+            <Repeat size={16} /> MRR (normalised monthly)
           </span>
           <strong>{formatCurrency(metrics.mrr)}</strong>
-          <small>{formatCurrency(metrics.arr)} annual run rate</small>
-          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'mrr', title: 'Monthly recurring revenue', listUrl: '/subscriptions?status=ACTIVE' })}>
+          <small>{formatCurrency(metrics.arr)} ARR (MRR x 12)</small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown('mrr')}>
             View details <ArrowRight size={13} />
           </button>
         </div>
@@ -273,41 +244,73 @@ export const DashboardPage: React.FC = () => {
           </span>
           <strong>{metrics.active_subscriptions}</strong>
           <small>
-            {plural(metrics.total_customers, 'customer')} ·{' '}
-            {metrics.upcoming_renewals_count} renewing this week
-            {metrics.churn_rate !== undefined && metrics.churn_rate !== null && ` · ${metrics.churn_rate} churn`}
+            Customers: {metrics.total_customers} · {metrics.upcoming_renewals_count} renewing this week
+            {metrics.churn_rate !== undefined && metrics.churn_rate !== null && ` · Churn (provisional) ${metrics.churn_rate}`}
           </small>
-          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'active_subscriptions', title: 'Active subscriptions', listUrl: '/subscriptions?status=ACTIVE' })}>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown('active_subscriptions')}>
             View details <ArrowRight size={13} />
           </button>
         </div>
         <div>
           <span>
-            <Wallet size={16} /> Outstanding balance
+            <Wallet size={16} /> Outstanding (open balance)
           </span>
-          <strong className={metrics.overdue_count > 0 ? 'bl-amount-due' : ''}>
-            {formatCurrency(metrics.outstanding_balance)}
-          </strong>
+          <strong>{formatCurrency(metrics.outstanding_balance)}</strong>
+          <small>
+            {metrics.outstanding_count ?? 0} open {metrics.outstanding_count === 1 ? 'invoice' : 'invoices'}
+            {' · '}Due soon (next 30 days): {formatCurrency(metrics.due_next_month ?? 0)}
+          </small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown('outstanding')}>
+            View details <ArrowRight size={13} />
+          </button>
+        </div>
+        <div>
+          <span>
+            <AlertCircle size={16} /> Overdue (past due, unpaid)
+          </span>
+          <strong className={metrics.overdue_count > 0 ? 'bl-amount-due' : ''}>{formatCurrency(overdueAmount)}</strong>
           <small>
             {metrics.overdue_count > 0
-              ? `${formatCurrency(overdueAmount)} overdue across ${plural(metrics.overdue_count, 'invoice')}`
-              : 'Nothing overdue'}
+              ? `Across ${plural(metrics.overdue_count, 'invoice')}, remaining balance only`
+              : 'Nothing is past due'}
           </small>
-          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'overdue_invoices', title: 'Overdue invoices', listUrl: '/invoices?status=OVERDUE' })}>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown('overdue_invoices')}>
+            View details <ArrowRight size={13} />
+          </button>
+        </div>
+      </section>
+
+      <section className="bl-overview-stats" aria-label="Billed and received">
+        <div>
+          <span>
+            <FileText size={16} /> Billed (invoiced), this month
+          </span>
+          <strong>{formatCurrency(metrics.billed_this_month ?? 0)}</strong>
+          <small>{plural(metrics.billed_this_month_count ?? 0, 'invoice')} issued</small>
+          <button type="button" className="bl-stat-link" onClick={() => openMonthDrillDown('billed')}>
             View details <ArrowRight size={13} />
           </button>
         </div>
         <div>
           <span>
-            <CircleDollarSign size={16} /> Collected this month
+            <CircleDollarSign size={16} /> Received (payments), this month
           </span>
           <strong>{formatCurrency(metrics.revenue_this_month)}</strong>
           <small>
-            {metrics.revenue_collected !== undefined
-              ? `${formatCurrency(metrics.revenue_collected)} collected all time`
-              : `${formatCurrency(metrics.due_next_month ?? 0)} due in the next 30 days`}
+            {plural(metrics.revenue_this_month_count ?? 0, 'payment')}
+            {metrics.revenue_collected !== undefined && ` · ${formatCurrency(metrics.revenue_collected)} received all time`}
           </small>
-          <button type="button" className="bl-stat-link" onClick={() => openDrillDown({ metric: 'revenue_collected', title: 'Collected payments', listUrl: '/payments' })}>
+          <button type="button" className="bl-stat-link" onClick={() => openMonthDrillDown('revenue_collected')}>
+            View details <ArrowRight size={13} />
+          </button>
+        </div>
+        <div>
+          <span>
+            <CreditCard size={16} /> Received (payments), all time
+          </span>
+          <strong>{formatCurrency(metrics.revenue_collected ?? 0)}</strong>
+          <small>{plural(metrics.revenue_collected_count ?? 0, 'payment')} recorded</small>
+          <button type="button" className="bl-stat-link" onClick={() => openDrillDown('revenue_collected')}>
             View details <ArrowRight size={13} />
           </button>
         </div>
@@ -333,21 +336,21 @@ export const DashboardPage: React.FC = () => {
         <SectionHeading
           index="01"
           eyebrow="Revenue"
-          title="Billed and collected."
+          title="Billed and received."
           id="revenue-heading"
           aside={
             <div className="bl-chart-legend" aria-hidden="true">
               <span>
-                <i style={{ background: '#305D42' }} /> Billed
+                <i style={{ background: '#305D42' }} /> Billed (invoiced)
               </span>
               <span>
-                <i style={{ background: '#A8C09B' }} /> Collected
+                <i style={{ background: '#A8C09B' }} /> Received (payments)
               </span>
             </div>
           }
         />
         <div className="bl-chart-grid">
-          <div className="h-72" role="img" aria-label="Billed versus collected over the last six months">
+          <div className="h-72" role="img" aria-label="Billed (invoiced) versus received (payments) over the last six months">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={mapTrendForChart(revenue_trend)} margin={{ top: 8, right: 0, left: 0, bottom: 0 }} barGap={4}>
                 <CartesianGrid vertical={false} stroke="#E8ECE3" />
@@ -365,8 +368,8 @@ export const DashboardPage: React.FC = () => {
                   formatter={(val: any, label: any) => [formatCurrency(Number(val)), label]}
                   contentStyle={CHART_TOOLTIP}
                 />
-                <Bar dataKey="billed" name="Billed" fill="#305D42" radius={[4, 4, 0, 0]} maxBarSize={26} />
-                <Bar dataKey="collected" name="Collected" fill="#A8C09B" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="billed" name="Billed (invoiced)" fill="#305D42" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="collected" name="Received (payments)" fill="#A8C09B" radius={[4, 4, 0, 0]} maxBarSize={26} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -605,74 +608,14 @@ export const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <Modal
-        isOpen={!!drill}
-        onClose={() => setDrill(null)}
-        title={drill?.title ?? ''}
-        description="The most recent records behind this figure."
-        maxWidth="2xl"
-      >
-        {isDrillLoading ? (
-          <p className="py-8 text-center text-sm text-slate-500">Loading records…</p>
-        ) : drillError ? (
-          <div className="bl-notice bl-notice-error" role="alert">
-            <AlertCircle size={18} />
-            <span>We couldn’t load these records. Please try again.</span>
-          </div>
-        ) : drillRecords.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">No records yet.</p>
-        ) : (
-          <div className="bl-table-scroll" role="region" aria-label={drill?.title} tabIndex={0}>
-            <table className="bl-table">
-              <thead>
-                <tr>
-                  <th>Reference</th>
-                  <th>Customer</th>
-                  <th>Date</th>
-                  <th className="bl-align-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drillRecords.map((r) => (
-                  <tr key={`${r.reference}-${r.id}`}>
-                    <th scope="row">
-                      {r.reference}
-                      {r.details && (
-                        <span className="block text-xs font-normal text-[#6b776d]">{r.details}</span>
-                      )}
-                    </th>
-                    <td>{r.customer_name || '—'}</td>
-                    <td className="bl-muted">{formatDate(r.date)}</td>
-                    <td className="bl-align-right">{formatCurrency(r.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            className="bl-refresh"
-            onClick={exportDrillDown}
-            disabled={isExporting || isDrillLoading}
-          >
-            <Download size={14} />
-            {isExporting ? 'Preparing export…' : 'Export CSV'}
-          </button>
-          {exportError && (
-            <div className="bl-notice bl-notice-error" role="alert">
-              <AlertCircle size={18} />
-              <span>{exportError}</span>
-            </div>
-          )}
-          {drill && (
-            <Link to={drill.listUrl} className="bl-refresh is-primary" onClick={() => setDrill(null)}>
-              Open full list <ArrowRight size={14} />
-            </Link>
-          )}
-        </div>
-      </Modal>
+      <DrillDownModal
+        metric={drill}
+        filters={filters}
+        page={page}
+        cardCount={drill ? cardCounts[drill] : undefined}
+        onClose={closeDrillDown}
+        onChange={update}
+      />
 
       <div className="bl-portal-endnote">
         <span>Everything in its place.</span>
