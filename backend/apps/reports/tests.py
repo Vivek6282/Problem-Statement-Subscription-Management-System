@@ -132,3 +132,17 @@ class EndToEndFlowTestCase(TestCase):
         self.assertGreaterEqual(metrics['active_subscriptions'], 1)
         self.assertGreaterEqual(Decimal(str(metrics['mrr'])), Decimal('3560.00'))
         self.assertGreaterEqual(Decimal(str(metrics['revenue_this_month'])), Decimal('3560.00'))
+
+
+class PublicSummaryPrivacyTestCase(TestCase):
+    def test_anonymous_summary_exposes_only_health_status(self):
+        customer = Customer.objects.create(name='Private Person', company='Secret Co', email='private@example.com')
+        Invoice.objects.create(
+            customer=customer, total_amount=Decimal('99.00'), balance_due=Decimal('99.00'),
+            due_date=datetime.date.today(), status=InvoiceStatus.CONFIRMED,
+        )
+        res = APIClient().get('/api/v1/reports/public-summary/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {'status': 'HEALTHY'})
+        for key in ('mrr', 'arr', 'showcase_invoices', 'database_engine', 'billing_engine'):
+            self.assertNotIn(key, res.json())

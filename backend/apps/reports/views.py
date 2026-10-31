@@ -620,34 +620,9 @@ class ExportReportCSVView(views.APIView):
 
 class PublicSummaryView(views.APIView):
     """
-    Public summary endpoint for landing page & health status.
+    Public health probe. Anonymous callers receive no business data.
     """
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        total_customers = Customer.objects.filter(status=CustomerStatus.ACTIVE).count()
-        active_subs = Subscription.objects.filter(status=SubscriptionStatus.ACTIVE)
-        active_subscriptions_count = active_subs.count()
-
-        total_mrr = calculate_mrr_sql(active_subs)
-        total_arr = (total_mrr * Decimal('12.00')).quantize(Decimal('0.01'))
-
-        total_invoices = Invoice.objects.exclude(status=InvoiceStatus.CANCELLED).count()
-        total_paid_invoices = Invoice.objects.filter(status=InvoiceStatus.PAID).count()
-
-        showcase_invoices = list(Invoice.objects.select_related('customer').order_by('-created_at')[:4].values(
-            'id', 'invoice_number', 'customer__company', 'customer__name', 'total_amount', 'status', 'due_date'
-        ))
-
-        return Response({
-            'status': 'HEALTHY',
-            'total_customers': total_customers,
-            'active_subscriptions': active_subscriptions_count,
-            'total_invoices': total_invoices,
-            'total_paid_invoices': total_paid_invoices,
-            'mrr': f"{total_mrr:.2f}",
-            'arr': f"{total_arr:.2f}",
-            'showcase_invoices': showcase_invoices,
-            'database_engine': 'PostgreSQL / Local DB',
-            'billing_engine': 'Celery + Redis / Transactional Row Lock',
-        })
+        return Response({'status': 'HEALTHY'})
