@@ -189,7 +189,7 @@ python manage.py run_billing_cycle [--date YYYY-MM-DD]
 ### Running the Test Suite
 ```bash
 cd backend
-python manage.py test
+USE_SQLITE=True python manage.py test      # 91 tests: auth, catalogue, quotations, billing, tax/discount, payments, permissions, dashboard, performance
 ```
 
 ### Test Coverage Highlights:
@@ -231,3 +231,24 @@ python manage.py test
 - [x] Dedicated Customer Self-Service Portal (`/portal`)
 - [x] Multi-container Docker Compose setup (`db`, `redis`, `backend`, `celery_worker`, `celery_beat`, `frontend`)
 
+---
+
+## 9. Roles & Permissions (enforced by the API, mirrored in the UI)
+
+| Capability | Admin | Staff | Customer |
+| :--- | :---: | :---: | :---: |
+| Create staff accounts | ✅ | ❌ | ❌ |
+| Products, variants, plans, tax rules, discount rules (create / edit / archive) | ✅ | read only | ❌ (plans: read) |
+| Customers, quotations & templates, subscriptions, invoices, payments (create / manage) | ✅ | ✅ | ❌ |
+| Reverse a payment | ✅ | ❌ | ❌ |
+| Dashboard, reports, audit log | ✅ | ✅ | ❌ |
+| View own subscriptions, quotations, invoices, payments | — | — | ✅ (nothing else) |
+| Pause / resume / close / renew own subscription (subject to the plan's settings), accept / reject own quotation | — | — | ✅ |
+
+## 10. Spec Compliance Pass
+
+The project was audited against `Subscription_Management_System.pdf` and completed; see
+[`SPEC_COMPLIANCE_PLAN.md`](SPEC_COMPLIANCE_PLAN.md) (gap analysis and workflow) and
+[`SPEC_COMPLIANCE_REPORT.md`](SPEC_COMPLIANCE_REPORT.md) (what changed, test evidence, known limits, configuration).
+Notable behaviour: all prices, taxes and discounts are calculated on the server from the catalogue, tax rules and discount rules;
+recurring billing catches up every missed cycle and is safe to retry; subscriptions follow Draft → Quotation → Confirmed → Active → Closed.
