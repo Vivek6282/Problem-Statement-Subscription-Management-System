@@ -79,11 +79,11 @@ class Discount(models.Model):
             return False, f"Minimum purchase amount is ${self.min_purchase_amount}."
         if quantity < self.min_quantity:
             return False, f"Minimum quantity is {self.min_quantity}."
-        if self.applicable_products.exists() and product:
-            if not self.applicable_products.filter(id=product.id).exists():
+        if self.applicable_products.exists():
+            if product is None or not self.applicable_products.filter(id=product.id).exists():
                 return False, "Discount not applicable for this product."
-        if self.applicable_plans.exists() and plan:
-            if not self.applicable_plans.filter(id=plan.id).exists():
+        if self.applicable_plans.exists():
+            if plan is None or not self.applicable_plans.filter(id=plan.id).exists():
                 return False, "Discount not applicable for this plan."
         return True, ""
 
@@ -95,7 +95,7 @@ class Discount(models.Model):
         return discount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 class DiscountRedemption(models.Model):
-    discount = models.ForeignKey(Discount, on_delete=models.CASCADE, related_name='redemptions')
+    discount = models.ForeignKey(Discount, on_delete=models.PROTECT, related_name='redemptions')
     customer = models.ForeignKey('customers.Customer', on_delete=models.CASCADE, related_name='discount_redemptions')
     subscription = models.ForeignKey('subscriptions.Subscription', on_delete=models.SET_NULL, null=True, blank=True, related_name='discount_redemptions')
     invoice = models.ForeignKey('invoices.Invoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='discount_redemptions')
@@ -109,4 +109,3 @@ class DiscountRedemption(models.Model):
 
     def __str__(self):
         return f"{self.customer} redeemed {self.discount.code} for ${self.amount_discounted}"
-
