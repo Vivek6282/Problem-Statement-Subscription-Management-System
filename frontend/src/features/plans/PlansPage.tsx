@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Layers, Plus, Calendar, Check, X, Edit2, ShieldAlert } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, getApiError } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Plan, BillingInterval } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -12,11 +12,16 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
 
 export const PlansPage: React.FC = () => {
   const { isAdmin } = useAuth()
+  const [notice, setNotice] = useState<string | null>(null)
   const [plans, setPlans] = useState<Plan[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const lastFilterKey = useRef('')
 
   // Plan Modal
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -42,8 +47,9 @@ export const PlansPage: React.FC = () => {
   const fetchPlans = async () => {
     setIsLoading(true)
     try {
-      const res = await api.get('/plans/')
+      const res = await api.get(`/plans/?page=${page}`)
       setPlans(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -52,8 +58,15 @@ export const PlansPage: React.FC = () => {
   }
 
   useEffect(() => {
+    const filterKey = ''
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchPlans()
-  }, [])
+  }, [page])
 
   const openCreateModal = () => {
     setEditingPlan(null)
@@ -97,6 +110,19 @@ export const PlansPage: React.FC = () => {
     setIsModalOpen(true)
   }
 
+  const toggleActive = async (p: Plan) => {
+    const next = !p.is_active
+    if (!confirm(`${next ? 'Activate' : 'Deactivate'} plan "${p.name}"? ${next ? '' : 'Existing subscriptions keep running, but new subscriptions and quotations cannot use it.'}`)) return
+    try {
+      await api.patch(`/plans/${p.id}/`, { is_active: next })
+      setNotice(`Plan "${p.name}" ${next ? 'activated' : 'deactivated'}.`)
+      fetchPlans()
+    } catch (err) {
+      setNotice(`Error: ${getApiError(err)}`)
+    }
+    setTimeout(() => setNotice(null), 5000)
+  }
+
   const handleSavePlan = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSaving(true)
@@ -117,13 +143,7 @@ export const PlansPage: React.FC = () => {
       setIsModalOpen(false)
       fetchPlans()
     } catch (err: any) {
-      setFormError(
-        err?.response?.data?.availability_end_date?.[0] ||
-        err?.response?.data?.price?.[0] ||
-        err?.response?.data?.code?.[0] ||
-        err?.response?.data?.detail ||
-        'Failed to save plan.'
-      )
+      setFormError(getApiError(err, 'Failed to save plan.'))
     } finally {
       setIsSaving(false)
     }
@@ -137,11 +157,22 @@ export const PlansPage: React.FC = () => {
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Subscription Plans</h1>
           <p className="text-xs text-slate-500 mt-1">Configure recurring billing tiers, intervals, and renewal policies</p>
         </div>
-        <Button onClick={openCreateModal}>
-          <Plus className="w-4 h-4 mr-1.5" />
-          Create Plan
-        </Button>
+        {isAdmin ? (
+          <Button onClick={openCreateModal}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Create Plan
+          </Button>
+        ) : (
+          <Badge variant="neutral">View Only — plans are managed by Administrators</Badge>
+        )}
       </div>
+
+      {notice && (
+        <div className="p-3 bg-navy-950 text-white rounded-xl text-xs font-semibold flex items-center justify-between border border-slate-700">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} className="text-slate-400 hover:text-white">✕</button>
+        </div>
+      )}
 
       {/* Plans Grid */}
       {isLoading ? (
@@ -154,8 +185,8 @@ export const PlansPage: React.FC = () => {
         <EmptyState
           title="No Subscription Plans Configured"
           description="Create plans that customers can subscribe to."
-          actionLabel="Create Plan"
-          onAction={openCreateModal}
+          actionLabel={isAdmin ? 'Create Plan' : undefined}
+          onAction={isAdmin ? openCreateModal : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -164,14 +195,28 @@ export const PlansPage: React.FC = () => {
               <CardHeader className="bg-slate-50/50">
                 <div>
                   <div className="flex items-center justify-between">
-                    <Badge variant="default">{p.interval_display || p.billing_interval}</Badge>
-                    <button
-                      onClick={() => openEditModal(p)}
-                      className="p-1 text-slate-400 hover:text-slate-800 transition-colors"
-                      title="Edit Plan"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="default">{p.interval_display || p.billing_interval}</Badge>
+                      {!p.is_active && <Badge variant="danger">Inactive</Badge>}
+                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => toggleActive(p)}
+                          className="px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-slate-900 border border-slate-200 rounded"
+                          title={p.is_active ? 'Deactivate plan' : 'Activate plan'}
+                        >
+                          {p.is_active ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          onClick={() => openEditModal(p)}
+                          className="p-1 text-slate-400 hover:text-slate-800 transition-colors"
+                          title="Edit Plan"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <CardTitle className="mt-2 text-lg">{p.name}</CardTitle>
                   <p className="text-[11px] font-mono text-slate-400">code: {p.code}</p>
@@ -188,6 +233,10 @@ export const PlansPage: React.FC = () => {
 
                 {/* Plan Policy Checklist */}
                 <div className="pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-600">
+                  <div className="flex items-center justify-between">
+                    <span>Minimum Quantity:</span>
+                    <span className="font-bold text-slate-800">{p.min_quantity}</span>
+                  </div>
                   <div className="flex items-center justify-between">
                     <span>Allows Pause:</span>
                     {p.allow_pause ? <Check className="w-4 h-4 text-green-600" /> : <X className="w-4 h-4 text-slate-300" />}
@@ -224,6 +273,8 @@ export const PlansPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {!isLoading && <Pagination page={page} count={count} onPageChange={setPage} className="rounded-xl border border-slate-200" />}
 
       {/* Plan Create / Edit Modal */}
       <Modal

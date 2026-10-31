@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Package,
   Plus,
@@ -11,7 +11,7 @@ import {
   AlertCircle,
   Tag,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, getApiError } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import type { Product, ProductVariant, ProductType } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -23,11 +23,15 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
 
 export const ProductsPage: React.FC = () => {
   const { isAdmin } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('ALL')
 
@@ -64,10 +68,12 @@ export const ProductsPage: React.FC = () => {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (typeFilter !== 'ALL') params.append('product_type', typeFilter)
+      params.append('page', String(page))
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
       setProducts(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -76,8 +82,15 @@ export const ProductsPage: React.FC = () => {
   }
 
   useEffect(() => {
+    const filterKey = String(search) + '|' + String(typeFilter)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
     fetchProducts()
-  }, [search, typeFilter])
+  }, [search, typeFilter, page])
 
   const openCreateProduct = () => {
     setEditingProduct(null)
@@ -122,15 +135,24 @@ export const ProductsPage: React.FC = () => {
       setIsProdModalOpen(false)
       fetchProducts()
     } catch (err: any) {
-      setProdError(
-        err?.response?.data?.sales_price?.[0] ||
-        err?.response?.data?.sku?.[0] ||
-        err?.response?.data?.detail ||
-        'Failed to save product.'
-      )
+      setProdError(getApiError(err, 'Failed to save product.'))
     } finally {
       setIsSavingProd(false)
     }
+  }
+
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const handleDeleteProduct = async (p: Product) => {
+    if (!confirm(`Delete "${p.name}"? If it is used by subscriptions or quotations it will be archived instead, so financial history stays intact.`)) return
+    try {
+      const res = await api.delete(`/products/${p.id}/`)
+      setNotice(res.data?.message || `Product "${p.name}" deleted.`)
+      fetchProducts()
+    } catch (err) {
+      setNotice(`Error: ${getApiError(err)}`)
+    }
+    setTimeout(() => setNotice(null), 7000)
   }
 
   const openVariantManager = (p: Product) => {
@@ -157,7 +179,7 @@ export const ProductsPage: React.FC = () => {
       setIsVariantModalOpen(false)
       fetchProducts()
     } catch (err: any) {
-      setVariantError(err?.response?.data?.price_adjustment?.[0] || err?.response?.data?.detail || 'Failed to add variant.')
+      setVariantError(getApiError(err, 'Failed to add variant.'))
     } finally {
       setIsSavingVariant(false)
     }
@@ -171,11 +193,20 @@ export const ProductsPage: React.FC = () => {
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Product & Catalog Management</h1>
           <p className="text-xs text-slate-500 mt-1">Configure base items, SKUs, and variant pricing adjustments</p>
         </div>
-        <Button onClick={openCreateProduct}>
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add Product
-        </Button>
+        {isAdmin && (
+          <Button onClick={openCreateProduct}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Product
+          </Button>
+        )}
       </div>
+
+      {notice && (
+        <div className="p-3 bg-navy-950 text-white rounded-xl text-xs font-semibold flex items-center justify-between border border-slate-700">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} className="text-slate-400 hover:text-white">✕</button>
+        </div>
+      )}
 
       {/* Pricing policy banner */}
       <div className="p-3 bg-blue-50/60 border border-blue-200/60 rounded-xl flex items-center justify-between text-xs text-blue-900">
@@ -229,8 +260,8 @@ export const ProductsPage: React.FC = () => {
         <EmptyState
           title="No Products in Catalog"
           description="Create your first billable product or subscription add-on."
-          actionLabel="Create Product"
-          onAction={openCreateProduct}
+          actionLabel={isAdmin ? 'Create Product' : undefined}
+          onAction={isAdmin ? openCreateProduct : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4">
@@ -242,6 +273,7 @@ export const ProductsPage: React.FC = () => {
                     <div className="flex items-center gap-2.5">
                       <h3 className="font-bold text-slate-900 text-base">{p.name}</h3>
                       <Badge variant="info">{p.product_type}</Badge>
+                      {!p.is_active && <Badge variant="danger">Archived</Badge>}
                       <span className="font-mono text-xs text-slate-500 font-semibold">SKU: {p.sku}</span>
                     </div>
                     {p.description && <p className="text-xs text-slate-500 max-w-2xl">{p.description}</p>}
@@ -253,24 +285,33 @@ export const ProductsPage: React.FC = () => {
                       <p className="text-lg font-black text-slate-900">{formatCurrency(p.sales_price)}</p>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openVariantManager(p)}
-                        className="text-xs"
-                      >
-                        <Layers className="w-3.5 h-3.5 mr-1" />
-                        Variants ({p.variants?.length || 0})
-                      </Button>
-                      <button
-                        onClick={() => openEditProduct(p)}
-                        className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                        title="Edit Product"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openVariantManager(p)}
+                          className="text-xs"
+                        >
+                          <Layers className="w-3.5 h-3.5 mr-1" />
+                          Variants ({p.variants?.length || 0})
+                        </Button>
+                        <button
+                          onClick={() => openEditProduct(p)}
+                          className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                          title="Edit Product"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(p)}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete (archives when in use)"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -306,6 +347,8 @@ export const ProductsPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {!isLoading && <Pagination page={page} count={count} onPageChange={setPage} className="rounded-xl border border-slate-200" />}
 
       {/* Product Create/Edit Modal */}
       <Modal
@@ -383,6 +426,17 @@ export const ProductsPage: React.FC = () => {
               value={prodForm.description}
               onChange={(e) => setProdForm({ ...prodForm, description: e.target.value })}
               placeholder="Detailed description for invoices and quotations..."
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">Internal Notes</label>
+            <textarea
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+              rows={2}
+              value={prodForm.notes}
+              onChange={(e) => setProdForm({ ...prodForm, notes: e.target.value })}
+              placeholder="Notes visible to staff only..."
             />
           </div>
 
