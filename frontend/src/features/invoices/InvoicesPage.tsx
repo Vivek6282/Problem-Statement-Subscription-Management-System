@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Plus,
@@ -41,6 +41,8 @@ import { MiniPayoutGraphic } from './components/MiniPayoutGraphic'
 export const InvoicesPage: React.FC = () => {
   const { isStaff, user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const statusParam = searchParams.get('status')
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -51,7 +53,19 @@ export const InvoicesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'ALL' | 'DRAFT' | 'UNPAID'>('UNPAID')
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState('ALL')
-  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState(statusParam || 'ALL')
+
+  useEffect(() => {
+    if (statusParam === 'OVERDUE') {
+      setStatusFilter('OVERDUE')
+      setActiveTab('UNPAID')
+    } else if (statusParam === 'UNPAID') {
+      setActiveTab('UNPAID')
+      setStatusFilter('ALL')
+    } else if (statusParam) {
+      setStatusFilter(statusParam)
+    }
+  }, [statusParam])
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [showTableView, setShowTableView] = useState(false)
