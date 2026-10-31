@@ -226,6 +226,9 @@ class Command(BaseCommand):
             }
         )
 
+        # VAT only covers the add-on storage product; GST is the global default for everything else
+        vat_tax.applicable_products.set([storage_prod])
+
         welcome_discount, _ = Discount.objects.get_or_create(
             code='WELCOME20',
             defaults={
@@ -291,6 +294,22 @@ class Command(BaseCommand):
                 'payment_terms': PaymentTerms.NET_15
             }
         )
+
+        # Subscription-level discount attached to the paused subscription (applies on its next invoices once resumed)
+        if sub_initech.discount_id is None:
+            sub_initech.discount = welcome_discount
+            sub_initech.save(update_fields=['discount', 'updated_at'])
+
+        # Reusable quotation template: plan + product lines + validity + payment terms
+        from apps.quotations.models import QuotationTemplate, QuotationTemplateItem
+        template, _ = QuotationTemplate.objects.get_or_create(
+            name='Standard Business Offer',
+            defaults={'plan': pro_plan, 'validity_days': 30, 'payment_terms': PaymentTerms.NET_30,
+                      'description': 'Pro plan with ERP (Odoo) and two analytics seats.'}
+        )
+        if not template.items.exists():
+            QuotationTemplateItem.objects.create(template=template, product=erp_prod, variant=odoo_variant, quantity=1)
+            QuotationTemplateItem.objects.create(template=template, product=analytics_prod, quantity=2)
 
         # 7. Invoices & Payments
         # Paid invoice for Acme
