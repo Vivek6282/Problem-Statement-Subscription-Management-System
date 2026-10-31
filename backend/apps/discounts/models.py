@@ -65,8 +65,8 @@ class Discount(models.Model):
         if self.discount_type == DiscountType.FIXED and self.value <= 0:
             raise ValidationError({'value': _("Fixed discount value must be greater than 0.")})
 
-    def is_eligible(self, subtotal, quantity=1, product=None, plan=None):
-        today = datetime.date.today()
+    def is_eligible(self, subtotal, quantity=1, product=None, plan=None, on_date=None):
+        today = on_date or datetime.date.today()
         if not self.is_active:
             return False, "Discount is inactive."
         if self.start_date and today < self.start_date:
@@ -79,12 +79,12 @@ class Discount(models.Model):
             return False, f"Minimum purchase amount is ${self.min_purchase_amount}."
         if quantity < self.min_quantity:
             return False, f"Minimum quantity is {self.min_quantity}."
-        if self.applicable_products.exists() and product:
-            if not self.applicable_products.filter(id=product.id).exists():
-                return False, "Discount not applicable for this product."
-        if self.applicable_plans.exists() and plan:
-            if not self.applicable_plans.filter(id=plan.id).exists():
-                return False, "Discount not applicable for this plan."
+        restricted_products = list(self.applicable_products.values_list('id', flat=True))
+        if restricted_products and (product is None or product.id not in restricted_products):
+            return False, "Discount not applicable for this product."
+        restricted_plans = list(self.applicable_plans.values_list('id', flat=True))
+        if restricted_plans and (plan is None or plan.id not in restricted_plans):
+            return False, "Discount not applicable for this plan."
         return True, ""
 
     def calculate_discount(self, subtotal):
