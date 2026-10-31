@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   FileText,
   Plus,
@@ -12,9 +12,9 @@ import {
   Eye,
   AlertTriangle,
 } from 'lucide-react'
-import { api } from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import type { Invoice, Customer, InvoiceStatus, PaymentMethodType } from '@/types'
+import { api, fetchAll, getApiError } from '@/lib/api'
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
+import type { Invoice, Customer, InvoiceStatus, PaymentMethodType, HistoryEvent } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -24,11 +24,19 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import { TableControls } from '@/components/ui/TableControls'
 
 export const InvoicesPage: React.FC = () => {
   const { isStaff } = useAuth()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const [ordering, setOrdering] = useState('-issue_date')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const lastFilterKey = useRef('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
 
@@ -42,7 +50,6 @@ export const InvoicesPage: React.FC = () => {
     product_name: '',
     quantity: 1,
     unit_price: '',
-    tax_amount: '0.00',
   })
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -59,6 +66,12 @@ export const InvoicesPage: React.FC = () => {
 
   // Detail Modal
   const [detailInv, setDetailInv] = useState<Invoice | null>(null)
+  const [invHistory, setInvHistory] = useState<{ events: HistoryEvent[]; payments: any[] } | null>(null)
+
+  // Draft editing (header fields; the line is editable when the draft has exactly one)
+  const [editInv, setEditInv] = useState<{ id: number; number: string; due_date: string; notes: string; single: boolean; product_name: string; quantity: number; unit_price: string } | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
 
   const fetchInvoices = async () => {
@@ -68,10 +81,15 @@ export const InvoicesPage: React.FC = () => {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (statusFilter !== 'ALL') params.append('status', statusFilter)
+      params.append('page', String(page))
+      if (ordering) params.append('ordering', ordering)
+      if (dateFrom) params.append('issue_date__gte', dateFrom)
+      if (dateTo) params.append('issue_date__lte', dateTo)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await api.get(url)
       setInvoices(res.data.results || res.data)
+      setCount(res.data.count ?? (res.data.results || res.data).length)
     } catch (err) {
       console.error(err)
     } finally {
@@ -81,29 +99,75 @@ export const InvoicesPage: React.FC = () => {
 
   const loadCustomers = async () => {
     try {
-      const res = await api.get('/customers/')
-      setCustomers(res.data.results || res.data)
+      const rows = await fetchAll<Customer>('/customers/', { status: 'ACTIVE' })
+      setCustomers(rows)
+      return rows
     } catch (err) {
       console.error(err)
+      return [] as Customer[]
     }
   }
 
   useEffect(() => {
-    fetchInvoices()
-  }, [search, statusFilter])
+    if (!detailInv) {
+      setInvHistory(null)
+      return
+    }
+    api.get(`/invoices/${detailInv.id}/history/`).then((res) => setInvHistory(res.data)).catch(() => setInvHistory(null))
+  }, [detailInv?.id])
 
-  const openCreateModal = () => {
-    loadCustomers()
+  const openEdit = (inv: Invoice) => {
+    const only = inv.items && inv.items.length === 1 ? inv.items[0] : null
+    setEditInv({
+      id: inv.id, number: inv.invoice_number, due_date: inv.due_date, notes: inv.notes || '',
+      single: !!only, product_name: only?.product_name || '', quantity: only?.quantity || 1, unit_price: only ? String(only.unit_price) : '',
+    })
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editInv) return
+    setIsEditing(true)
+    setEditError(null)
+    try {
+      const body: Record<string, unknown> = { due_date: editInv.due_date, notes: editInv.notes }
+      if (editInv.single) body.items = [{ product_name: editInv.product_name, quantity: Number(editInv.quantity) || 1, unit_price: editInv.unit_price }]
+      await api.patch(`/invoices/${editInv.id}/`, body)
+      setEditInv(null)
+      setDetailInv(null)
+      fetchInvoices()
+      setActionNotice(`Draft invoice ${editInv.number} updated.`)
+      setTimeout(() => setActionNotice(null), 5000)
+    } catch (err) {
+      setEditError(getApiError(err, 'Could not update the draft.'))
+    } finally {
+      setIsEditing(false)
+    }
+  }
+
+  useEffect(() => {
+    const filterKey = String(search) + '|' + String(statusFilter) + '|' + String(ordering) + '|' + String(dateFrom) + '|' + String(dateTo)
+    if (lastFilterKey.current !== filterKey && page !== 1) {
+      lastFilterKey.current = filterKey
+      setPage(1)
+      return
+    }
+    lastFilterKey.current = filterKey
+    fetchInvoices()
+  }, [search, statusFilter, ordering, dateFrom, dateTo, page])
+
+  const openCreateModal = async () => {
+    const rows = await loadCustomers()
     const d = new Date()
     d.setDate(d.getDate() + 30)
     setFormInv({
-      customer: customers[0]?.id ? String(customers[0].id) : '',
+      customer: rows[0]?.id ? String(rows[0].id) : '',
       due_date: d.toISOString().split('T')[0],
       notes: '',
-      product_name: 'Advisory and Cloud Services',
+      product_name: '',
       quantity: 1,
-      unit_price: '1500.00',
-      tax_amount: '0.00',
+      unit_price: '',
     })
     setFormError(null)
     setIsCreateOpen(true)
@@ -124,7 +188,6 @@ export const InvoicesPage: React.FC = () => {
             product_name: formInv.product_name,
             quantity: Number(formInv.quantity) || 1,
             unit_price: formInv.unit_price,
-            tax_amount: formInv.tax_amount,
           },
         ],
       })
@@ -133,7 +196,7 @@ export const InvoicesPage: React.FC = () => {
       setActionNotice('Draft invoice created.')
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setFormError(err?.response?.data?.detail || 'Failed to generate invoice.')
+      setFormError(getApiError(err, 'Failed to generate invoice.'))
     } finally {
       setIsSaving(false)
     }
@@ -146,7 +209,7 @@ export const InvoicesPage: React.FC = () => {
       fetchInvoices()
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setActionNotice(`Error: ${err?.response?.data?.error || err.message}`)
+      setActionNotice(`Error: ${getApiError(err)}`)
       setTimeout(() => setActionNotice(null), 5000)
     }
   }
@@ -159,7 +222,7 @@ export const InvoicesPage: React.FC = () => {
       fetchInvoices()
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setActionNotice(`Error: ${err?.response?.data?.error || err.message}`)
+      setActionNotice(`Error: ${getApiError(err)}`)
       setTimeout(() => setActionNotice(null), 5000)
     }
   }
@@ -170,7 +233,7 @@ export const InvoicesPage: React.FC = () => {
       setActionNotice(res.data.message)
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      setActionNotice(`Error sending email: ${err.message}`)
+      setActionNotice(`Error sending email: ${getApiError(err)}`)
       setTimeout(() => setActionNotice(null), 5000)
     }
   }
@@ -220,8 +283,7 @@ export const InvoicesPage: React.FC = () => {
       setActionNotice(`Payment recorded for invoice ${selectedInvoiceForPayment.invoice_number}!`)
       setTimeout(() => setActionNotice(null), 5000)
     } catch (err: any) {
-      const resp = err?.response?.data
-      setPayError(resp?.non_field_errors?.[0] || resp?.amount?.[0] || resp?.detail || 'Payment recording failed.')
+      setPayError(getApiError(err, 'Payment recording failed.'))
     } finally {
       setIsRecordingPayment(false)
     }
@@ -297,6 +359,18 @@ export const InvoicesPage: React.FC = () => {
               <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
+        </CardContent>
+        <CardContent className="px-4 pb-4 pt-3 border-t border-slate-100">
+          <TableControls
+            orderingOptions={[{ label: 'Newest first', value: '-issue_date' }, { label: 'Oldest first', value: 'issue_date' }, { label: 'Due soonest', value: 'due_date' }, { label: 'Highest total', value: '-total_amount' }, { label: 'Highest balance', value: '-balance_due' }]}
+            ordering={ordering}
+            onOrderingChange={setOrdering}
+            dateLabel="Issued"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+          />
         </CardContent>
       </Card>
 
@@ -412,6 +486,7 @@ export const InvoicesPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} count={count} onPageChange={setPage} />
         </Card>
       )}
 
@@ -454,6 +529,21 @@ export const InvoicesPage: React.FC = () => {
               </div>
             </div>
 
+            {((detailInv.applied_discounts && detailInv.applied_discounts.length > 0) || (detailInv.tax_summary && detailInv.tax_summary.length > 0)) && (
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                {detailInv.applied_discounts?.map((d) => (
+                  <div key={d.code} className="flex justify-between text-green-700">
+                    <span>Discount {d.code} — {d.name}</span><span>-{formatCurrency(d.amount)}</span>
+                  </div>
+                ))}
+                {detailInv.tax_summary?.map((t) => (
+                  <div key={`${t.name}-${t.rate}`} className="flex justify-between text-slate-600">
+                    <span>{t.name} ({t.rate}%)</span><span>+{formatCurrency(t.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Line items snapshot */}
             <div className="space-y-2">
               <h4 className="font-bold text-slate-900">Immutable Line Items Snapshot</h4>
@@ -469,7 +559,41 @@ export const InvoicesPage: React.FC = () => {
               ))}
             </div>
 
+            {invHistory && (invHistory.payments.length > 0 || invHistory.events.length > 0) && (
+              <div className="space-y-2">
+                {invHistory.payments.length > 0 && (
+                  <div>
+                    <h4 className="font-bold text-slate-900 mb-1">Payments</h4>
+                    <ul className="space-y-1">
+                      {invHistory.payments.map((p) => (
+                        <li key={p.id} className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded-lg">
+                          <span className="font-mono font-semibold">{p.payment_number}</span>
+                          <span className="text-slate-500">{formatDate(p.payment_date)} · {p.method}</span>
+                          <span className={p.status === 'REVERSED' ? 'line-through text-slate-400' : 'font-bold text-green-700'}>{formatCurrency(p.amount)}</span>
+                          {p.status === 'REVERSED' && <Badge variant="danger">Reversed</Badge>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div>
+                  <h4 className="font-bold text-slate-900 mb-1">Invoice History</h4>
+                  <ul className="space-y-1 max-h-28 overflow-y-auto">
+                    {invHistory.events.map((e) => (
+                      <li key={e.id} className="flex justify-between gap-3 p-2 bg-white border border-slate-200 rounded-lg">
+                        <span className="text-slate-700">{e.description}</span>
+                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatDateTime(e.created_at)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              {isStaff && detailInv.status === 'DRAFT' && (
+                <Button size="sm" variant="outline" onClick={() => openEdit(detailInv)}>Edit Draft</Button>
+              )}
               <Button size="sm" variant="outline" onClick={() => handleDownloadPDF(detailInv)}>
                 <Download className="w-3.5 h-3.5 mr-1" /> PDF Export
               </Button>
@@ -614,15 +738,10 @@ export const InvoicesPage: React.FC = () => {
                 value={formInv.unit_price}
                 onChange={(e) => setFormInv({ ...formInv, unit_price: e.target.value })}
               />
-              <Input
-                label="Tax Amount ($)"
-                type="number"
-                step="0.01"
-                value={formInv.tax_amount}
-                onChange={(e) => setFormInv({ ...formInv, tax_amount: e.target.value })}
-              />
             </div>
           </div>
+
+          <p className="text-[11px] text-slate-500 -mt-2">Taxes are added automatically from the configured tax rules. Invoices start as Draft until confirmed.</p>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-700">Invoice Notes</label>
@@ -645,6 +764,33 @@ export const InvoicesPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Edit Draft Invoice */}
+      {editInv && (
+        <Modal isOpen={!!editInv} onClose={() => setEditInv(null)} title={`Edit Draft ${editInv.number}`} description="Only draft invoices can be edited. Totals and taxes are recalculated by the system." maxWidth="md">
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            {editError && <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs">{editError}</div>}
+            <Input label="Due Date" type="date" required value={editInv.due_date} onChange={(e) => setEditInv({ ...editInv, due_date: e.target.value })} />
+            {editInv.single ? (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-3"><Input label="Item / Service" required value={editInv.product_name} onChange={(e) => setEditInv({ ...editInv, product_name: e.target.value })} /></div>
+                <Input label="Quantity" type="number" min="1" required value={editInv.quantity} onChange={(e) => setEditInv({ ...editInv, quantity: parseInt(e.target.value) || 1 })} />
+                <Input label="Unit Price ($)" type="number" step="0.01" required value={editInv.unit_price} onChange={(e) => setEditInv({ ...editInv, unit_price: e.target.value })} />
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500">This draft has several generated lines; only the due date and notes can be edited.</p>
+            )}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">Notes</label>
+              <textarea className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm" rows={2} value={editInv.notes} onChange={(e) => setEditInv({ ...editInv, notes: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <Button type="button" variant="outline" onClick={() => setEditInv(null)}>Cancel</Button>
+              <Button type="submit" isLoading={isEditing}>Save Changes</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
