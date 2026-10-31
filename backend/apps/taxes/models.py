@@ -40,8 +40,9 @@ class TaxRule(models.Model):
             return False
         if self.effective_to and check_date > self.effective_to:
             return False
-        if self.applicable_products.exists():
-            return self.applicable_products.filter(id=product.id).exists()
+        restricted = list(self.applicable_products.values_list('id', flat=True))
+        if restricted:
+            return product is not None and product.id in restricted
         return True
 
     def calculate_tax(self, taxable_amount):
