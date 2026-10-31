@@ -95,8 +95,8 @@ export const ReportsPage: React.FC = () => {
       api.get('/reports/subscriptions-by-status/'),
       api.get('/reports/payment-methods/'),
     ])
-    if (mrrRes.status === 'fulfilled') setMrrBreakdown(mrrRes.value.data)
-    if (trendsRes.status === 'fulfilled') setRevenueTrends(trendsRes.value.data)
+    if (mrrRes.status === 'fulfilled') setMrrBreakdown(mrrRes.value.data.results ?? [])
+    if (trendsRes.status === 'fulfilled') setRevenueTrends(trendsRes.value.data.results ?? [])
     if (statusRes.status === 'fulfilled') setSubscriptionsByStatus(statusRes.value.data)
     if (payRes.status === 'fulfilled') setPaymentMethods(payRes.value.data)
     const failed = [mrrRes, trendsRes, statusRes, payRes].filter((r) => r.status === 'rejected')

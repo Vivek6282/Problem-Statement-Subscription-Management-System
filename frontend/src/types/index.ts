@@ -298,7 +298,16 @@ export interface DashboardMetrics {
     instant_payout_available?: number | string;
     upcoming_renewals_count: number;
     churn_rate?: number | string;
+    churn_provisional?: boolean;
+    outstanding_count?: number;
+    revenue_collected_count?: number;
+    revenue_this_month_count?: number;
+    billed_this_month?: string;
+    billed_this_month_count?: number;
   };
+  currency_code?: string;
+  generated_at?: string;
+  as_of_date?: string;
   revenue_trend: RevenueTrendPoint[];
   subscription_distribution: Array<{
     name: string;

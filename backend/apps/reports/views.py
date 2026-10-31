@@ -3,6 +3,7 @@ import datetime
 from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.utils import timezone
 from django.http import HttpResponse
 from django.db.models import (
     Sum,
@@ -16,6 +17,7 @@ from django.db.models import (
     DecimalField,
 )
 from rest_framework import views, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.accounts.permissions import IsStaffOrAdmin
@@ -83,12 +85,58 @@ def calculate_mrr_sql(qs=None):
     return (plan_total + items_total).quantize(Decimal('0.01'))
 
 
-def get_overdue_invoices_queryset():
-    today = business_today()
-    return Invoice.objects.filter(
-        Q(status=InvoiceStatus.OVERDUE) |
-        (Q(due_date__lt=today) & Q(balance_due__gt=0) & ~Q(status__in=[InvoiceStatus.PAID, InvoiceStatus.CANCELLED, 'VOID']))
-    )
+OPEN_INVOICE_STATUSES = [InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.OVERDUE]
+BILLED_INVOICE_STATUSES = [
+    InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PAID, InvoiceStatus.OVERDUE,
+]
+
+
+def report_meta():
+    """Fields every report response carries so figures can be traced to a moment and currency."""
+    return {
+        'currency_code': settings.CURRENCY_CODE,
+        'generated_at': timezone.now().astimezone(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+        'as_of_date': business_today().isoformat(),
+    }
+
+
+def get_open_invoices_queryset():
+    """Outstanding = unpaid balance on invoices that are open (confirmed, partly paid or flagged overdue)."""
+    return Invoice.objects.filter(status__in=OPEN_INVOICE_STATUSES, balance_due__gt=0)
+
+
+def get_overdue_invoices_queryset(today=None):
+    """
+    Overdue = open invoice with a balance whose due date is before business today.
+    The stored OVERDUE status alone is not enough (a due date of today or later is not overdue);
+    DRAFT, PAID and CANCELLED are never overdue.
+    """
+    today = today or business_today()
+    return get_open_invoices_queryset().filter(due_date__lt=today)
+
+
+def get_billed_invoices_queryset(start_date=None, end_date=None):
+    """Billed = invoiced total of non-draft, non-cancelled invoices, by issue date."""
+    qs = Invoice.objects.filter(status__in=BILLED_INVOICE_STATUSES)
+    if start_date:
+        qs = qs.filter(issue_date__gte=start_date)
+    if end_date:
+        qs = qs.filter(issue_date__lte=end_date)
+    return qs
+
+
+def get_received_payments_queryset(start_date=None, end_date=None):
+    """Received = recorded payments, by payment date."""
+    qs = Payment.objects.all()
+    if start_date:
+        qs = qs.filter(payment_date__gte=start_date)
+    if end_date:
+        qs = qs.filter(payment_date__lte=end_date)
+    return qs
+
+
+def _sum(qs, field):
+    return qs.aggregate(total=Sum(field))['total'] or Decimal('0.00')
 
 
 class ConfigView(views.APIView):
@@ -126,23 +174,25 @@ class DashboardMetricsView(views.APIView):
         total_mrr = calculate_mrr_sql(active_subs)
         total_arr = (total_mrr * Decimal('12.00')).quantize(Decimal('0.01'))
 
-        # 3. Revenue
-        revenue_collected_all_time = Payment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-        month_payments = Payment.objects.filter(payment_date__gte=first_of_month, payment_date__lte=today)
-        revenue_this_month = month_payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        # 3. Received (payments) and billed (invoiced)
+        received_all = get_received_payments_queryset()
+        received_month = get_received_payments_queryset(first_of_month, today)
+        billed_month = get_billed_invoices_queryset(first_of_month, today)
+        revenue_collected_all_time = _sum(received_all, 'amount')
+        revenue_this_month = _sum(received_month, 'amount')
 
-        # 4. Invoices & Balances
-        open_invoices = Invoice.objects.filter(status__in=[InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.OVERDUE])
-        outstanding_balance = open_invoices.aggregate(total=Sum('balance_due'))['total'] or Decimal('0.00')
+        # 4. Outstanding, overdue and due soon share one open-invoice definition
+        open_invoices = get_open_invoices_queryset()
+        outstanding_balance = _sum(open_invoices, 'balance_due')
 
-        overdue_invoices_qs = get_overdue_invoices_queryset()
+        overdue_invoices_qs = get_overdue_invoices_queryset(today)
         overdue_count = overdue_invoices_qs.count()
-        overdue_amount = overdue_invoices_qs.aggregate(total=Sum('balance_due'))['total'] or Decimal('0.00')
+        overdue_amount = _sum(overdue_invoices_qs, 'balance_due')
 
-        due_next_month = open_invoices.filter(
-            due_date__gte=today,
-            due_date__lte=today + datetime.timedelta(days=30)
-        ).aggregate(total=Sum('balance_due'))['total'] or Decimal('0.00')
+        due_next_month = _sum(
+            open_invoices.filter(due_date__gte=today, due_date__lte=today + datetime.timedelta(days=30)),
+            'balance_due',
+        )
 
         total_paid_invoices = Invoice.objects.filter(status=InvoiceStatus.PAID).aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
         instant_payout_available = revenue_this_month + total_paid_invoices
@@ -185,16 +235,9 @@ class DashboardMetricsView(views.APIView):
             m_end = (m_start + relativedelta(months=1)) - datetime.timedelta(days=1)
             month_label = m_start.strftime("%b %Y")
 
-            billed = Invoice.objects.filter(
-                issue_date__gte=m_start,
-                issue_date__lte=m_end,
-                status__in=[InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PAID, InvoiceStatus.OVERDUE]
-            ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+            billed = _sum(get_billed_invoices_queryset(m_start, m_end), 'total_amount')
 
-            collected = Payment.objects.filter(
-                payment_date__gte=m_start,
-                payment_date__lte=m_end
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            collected = _sum(get_received_payments_queryset(m_start, m_end), 'amount')
 
             revenue_trend.append({
                 'month': month_label,
@@ -229,6 +272,7 @@ class DashboardMetricsView(views.APIView):
                 'revenue_collected': f"{revenue_collected_all_time:.2f}",
                 'revenue_this_month': f"{revenue_this_month:.2f}",
                 'outstanding_balance': f"{outstanding_balance:.2f}",
+                'outstanding_count': open_invoices.count(),
                 'overdue_count': overdue_count,
                 'overdue_amount': f"{overdue_amount:.2f}",
                 'due_next_month': f"{due_next_month:.2f}",
@@ -236,7 +280,13 @@ class DashboardMetricsView(views.APIView):
                 'instant_payout_available': f"{instant_payout_available:.2f}",
                 'upcoming_renewals_count': upcoming_renewals_count,
                 'churn_rate': churn_rate,
+                'churn_provisional': True,
+                'revenue_collected_count': received_all.count(),
+                'revenue_this_month_count': received_month.count(),
+                'billed_this_month': f"{_sum(billed_month, 'total_amount'):.2f}",
+                'billed_this_month_count': billed_month.count(),
             },
+            **report_meta(),
             'revenue_trend': revenue_trend,
             'subscription_distribution': [
                 {'name': 'Active', 'count': sub_dist.get(SubscriptionStatus.ACTIVE, 0)},
@@ -280,7 +330,7 @@ class MRRBreakdownView(views.APIView):
                         'mrr': f"{product_mrr:.2f}"
                     })
             data.sort(key=lambda x: Decimal(x['mrr']), reverse=True)
-            return Response(data)
+            return Response({'results': data, 'group_by': 'product', **report_meta()})
 
         # Default group by plan
         plans = Plan.objects.all()
@@ -299,7 +349,7 @@ class MRRBreakdownView(views.APIView):
                     'mrr': f"{plan_mrr:.2f}"
                 })
         data.sort(key=lambda x: Decimal(x['mrr']), reverse=True)
-        return Response(data)
+        return Response({'results': data, 'group_by': 'plan', **report_meta()})
 
 
 class RevenueTrendsView(views.APIView):
@@ -318,16 +368,9 @@ class RevenueTrendsView(views.APIView):
             m_end = (m_start + relativedelta(months=1)) - datetime.timedelta(days=1)
             month_label = m_start.strftime("%b %Y")
 
-            billed = Invoice.objects.filter(
-                issue_date__gte=m_start,
-                issue_date__lte=m_end,
-                status__in=[InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PAID, InvoiceStatus.OVERDUE]
-            ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+            billed = _sum(get_billed_invoices_queryset(m_start, m_end), 'total_amount')
 
-            collected = Payment.objects.filter(
-                payment_date__gte=m_start,
-                payment_date__lte=m_end
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            collected = _sum(get_received_payments_queryset(m_start, m_end), 'amount')
 
             trends.append({
                 'month': month_label,
@@ -335,7 +378,7 @@ class RevenueTrendsView(views.APIView):
                 'collected': f"{collected:.2f}"
             })
 
-        return Response(trends)
+        return Response({'results': trends, **report_meta()})
 
 
 class SubscriptionsByStatusView(views.APIView):
@@ -385,20 +428,128 @@ class PaymentMethodDistributionView(views.APIView):
         return Response(data)
 
 
+DRILLDOWN_METRICS = {
+    'mrr': 'subscriptions',
+    'active_subscriptions': 'subscriptions',
+    'overdue_invoices': 'overdue',
+    'overdue': 'overdue',
+    'outstanding': 'outstanding',
+    'billed': 'billed',
+    'revenue_collected': 'payments',
+    'revenue': 'payments',
+    'payments': 'payments',
+}
+
+DRILLDOWN_HEADER = ['ID', 'Reference', 'Customer Name', 'Amount', 'Date', 'Status', 'Details']
+
+
+def _parse_date_param(params, name):
+    raw = params.get(name)
+    if not raw:
+        return None
+    try:
+        return datetime.date.fromisoformat(raw)
+    except ValueError:
+        raise ValidationError({name: 'Use an ISO date, YYYY-MM-DD.'})
+
+
+def _parse_id_param(params, name):
+    raw = params.get(name)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValidationError({name: 'Must be a whole number.'})
+
+
+def parse_report_filters(params):
+    """The only filters the drill-down and the exports accept."""
+    return {
+        'start_date': _parse_date_param(params, 'start_date'),
+        'end_date': _parse_date_param(params, 'end_date'),
+        'plan_id': _parse_id_param(params, 'plan_id'),
+        'product_id': _parse_id_param(params, 'product_id'),
+    }
+
+
+def drilldown_queryset(metric, filters):
+    """
+    The one place that decides which records sit behind a metric and which filters apply.
+    Returns (kind, queryset, total) where total is the metric's headline amount for that set.
+    Cards, drill-downs and exports all go through here so they reconcile.
+    """
+    kind = DRILLDOWN_METRICS[metric]
+    start, end = filters['start_date'], filters['end_date']
+
+    if kind == 'subscriptions':
+        qs = Subscription.objects.filter(status=SubscriptionStatus.ACTIVE)
+        if filters['plan_id']:
+            qs = qs.filter(plan_id=filters['plan_id'])
+        if filters['product_id']:
+            qs = qs.filter(pk__in=SubscriptionItem.objects.filter(product_id=filters['product_id']).values('subscription_id'))
+        if start:
+            qs = qs.filter(start_date__gte=start)
+        if end:
+            qs = qs.filter(start_date__lte=end)
+        total = calculate_mrr_sql(qs)
+        return kind, qs.select_related('customer', 'plan').prefetch_related('items').order_by('-start_date', 'id'), total
+
+    if kind in ('overdue', 'outstanding'):
+        qs = get_overdue_invoices_queryset() if kind == 'overdue' else get_open_invoices_queryset()
+        if start:
+            qs = qs.filter(due_date__gte=start)
+        if end:
+            qs = qs.filter(due_date__lte=end)
+        return kind, qs.select_related('customer').order_by('due_date', 'id'), _sum(qs, 'balance_due')
+
+    if kind == 'billed':
+        qs = get_billed_invoices_queryset(start, end)
+        return kind, qs.select_related('customer').order_by('-issue_date', 'id'), _sum(qs, 'total_amount')
+
+    qs = get_received_payments_queryset(start, end)
+    return kind, qs.select_related('customer', 'invoice').order_by('-payment_date', 'id'), _sum(qs, 'amount')
+
+
+def drilldown_row(kind, obj):
+    """(id, reference, customer, amount, date, status, details) as plain values; amount is a 2-decimal string."""
+    if kind == 'subscriptions':
+        return (
+            obj.id, obj.subscription_number, obj.customer.name, f"{obj.normalized_mrr:.2f}",
+            obj.start_date.isoformat(), obj.status, f"Plan: {obj.plan.name} ({obj.plan.billing_interval})",
+        )
+    if kind in ('overdue', 'outstanding'):
+        return (
+            obj.id, obj.invoice_number, obj.customer.name, f"{obj.balance_due:.2f}",
+            obj.due_date.isoformat(), obj.status, f"Total: {obj.total_amount:.2f}, Paid: {obj.paid_amount:.2f}",
+        )
+    if kind == 'billed':
+        return (
+            obj.id, obj.invoice_number, obj.customer.name, f"{obj.total_amount:.2f}",
+            obj.issue_date.isoformat(), obj.status, f"Balance due: {obj.balance_due:.2f}",
+        )
+    inv_ref = obj.invoice.invoice_number if obj.invoice else 'N/A'
+    return (
+        obj.id, obj.payment_number, obj.customer.name, f"{obj.amount:.2f}",
+        obj.payment_date.isoformat(), 'COMPLETED', f"Method: {obj.payment_method}, Inv: {inv_ref}",
+    )
+
+
 class DrillDownView(views.APIView):
     """
-    Returns underlying records for a specific high-level metric.
-    Metrics supported: 'mrr', 'active_subscriptions', 'overdue_invoices', 'revenue_collected'.
-    Supports pagination, date filtering, and entity filtering.
+    Returns the records behind a headline metric.
+    Metrics: mrr, active_subscriptions, overdue_invoices (alias overdue), outstanding, billed,
+    revenue_collected (aliases revenue, payments).
+    Filters: start_date, end_date, plan_id, product_id (plan/product apply to subscription metrics only).
+    `count` and `total` come from the same queryset the dashboard cards use.
     """
     permission_classes = [IsStaffOrAdmin]
 
     def get(self, request):
         metric = request.query_params.get('metric', 'mrr').lower()
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
-        product_id = request.query_params.get('product_id')
-        plan_id = request.query_params.get('plan_id')
+        if metric not in DRILLDOWN_METRICS:
+            return Response({'error': f'Unsupported metric: {metric}'}, status=status.HTTP_400_BAD_REQUEST)
+        filters = parse_report_filters(request.query_params)
 
         try:
             page = max(1, int(request.query_params.get('page', 1)))
@@ -407,88 +558,25 @@ class DrillDownView(views.APIView):
             page = 1
             page_size = 20
 
+        kind, qs, total = drilldown_queryset(metric, filters)
+        total_count = qs.count()
         records = []
-
-        if metric in ['mrr', 'active_subscriptions']:
-            qs = Subscription.objects.filter(status=SubscriptionStatus.ACTIVE).select_related('customer', 'plan')
-            if plan_id:
-                qs = qs.filter(plan_id=plan_id)
-            if product_id:
-                qs = qs.filter(items__product_id=product_id).distinct()
-            if start_date:
-                qs = qs.filter(start_date__gte=start_date)
-            if end_date:
-                qs = qs.filter(start_date__lte=end_date)
-
-            total_count = qs.count()
-            qs_slice = qs.order_by('-start_date')[(page - 1) * page_size : page * page_size]
-
-            for s in qs_slice:
-                records.append({
-                    'id': s.id,
-                    'reference': s.subscription_number,
-                    'customer_name': s.customer.name,
-                    'amount': f"{s.normalized_mrr:.2f}",
-                    'date': s.start_date.isoformat(),
-                    'status': s.status,
-                    'details': f"Plan: {s.plan.name} ({s.plan.billing_interval})"
-                })
-
-        elif metric == 'overdue_invoices':
-            qs = get_overdue_invoices_queryset().select_related('customer')
-            if start_date:
-                qs = qs.filter(due_date__gte=start_date)
-            if end_date:
-                qs = qs.filter(due_date__lte=end_date)
-
-            total_count = qs.count()
-            qs_slice = qs.order_by('due_date')[(page - 1) * page_size : page * page_size]
-
-            for inv in qs_slice:
-                records.append({
-                    'id': inv.id,
-                    'reference': inv.invoice_number,
-                    'customer_name': inv.customer.name,
-                    'amount': f"{inv.balance_due:.2f}",
-                    'date': inv.due_date.isoformat(),
-                    'status': inv.status,
-                    'details': f"Total: {inv.total_amount:.2f}, Paid: {inv.paid_amount:.2f}"
-                })
-
-        elif metric in ['revenue_collected', 'revenue', 'payments']:
-            qs = Payment.objects.all().select_related('customer', 'invoice')
-            if start_date:
-                qs = qs.filter(payment_date__gte=start_date)
-            if end_date:
-                qs = qs.filter(payment_date__lte=end_date)
-
-            total_count = qs.count()
-            qs_slice = qs.order_by('-payment_date')[(page - 1) * page_size : page * page_size]
-
-            for p in qs_slice:
-                inv_ref = p.invoice.invoice_number if p.invoice else 'N/A'
-                records.append({
-                    'id': p.id,
-                    'reference': p.payment_number,
-                    'customer_name': p.customer.name,
-                    'amount': f"{p.amount:.2f}",
-                    'date': p.payment_date.isoformat(),
-                    'status': 'COMPLETED',
-                    'details': f"Method: {p.payment_method}, Inv: {inv_ref}"
-                })
-
-        else:
-            return Response({'error': f'Unsupported metric: {metric}'}, status=status.HTTP_400_BAD_REQUEST)
+        for obj in qs[(page - 1) * page_size: page * page_size]:
+            row = drilldown_row(kind, obj)
+            records.append(dict(zip(
+                ['id', 'reference', 'customer_name', 'amount', 'date', 'status', 'details'], row,
+            )))
 
         total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
-
         return Response({
             'metric': metric,
             'count': total_count,
+            'total': f"{total:.2f}",
             'page': page,
             'page_size': page_size,
             'total_pages': total_pages,
-            'results': records
+            'results': records,
+            **report_meta(),
         })
 
 
@@ -505,47 +593,18 @@ class ExportReportCSVView(views.APIView):
 
         if report_type == 'drilldown':
             metric = request.query_params.get('metric', 'mrr').lower()
+            if metric not in DRILLDOWN_METRICS:
+                return Response({'error': f'Unsupported metric: {metric}'}, status=status.HTTP_400_BAD_REQUEST)
+            filters = parse_report_filters(request.query_params)
+            kind, qs, _total = drilldown_queryset(metric, filters)
             response['Content-Disposition'] = f'attachment; filename="brightloop_drilldown_{metric}.csv"'
             writer = csv.writer(response)
-            writer.writerow(['ID', 'Reference', 'Customer Name', 'Amount', 'Date', 'Status', 'Details'])
-
-            # Use DrillDown logic without pagination limits
-            if metric in ['mrr', 'active_subscriptions']:
-                for s in Subscription.objects.filter(status=SubscriptionStatus.ACTIVE).select_related('customer', 'plan').order_by('-start_date'):
-                    writer.writerow([
-                        sanitize_csv_cell(s.id),
-                        sanitize_csv_cell(s.subscription_number),
-                        sanitize_csv_cell(s.customer.name),
-                        sanitize_csv_cell(f"{s.normalized_mrr:.2f}"),
-                        sanitize_csv_cell(s.start_date),
-                        sanitize_csv_cell(s.status),
-                        sanitize_csv_cell(f"{s.plan.name} ({s.plan.billing_interval})"),
-                    ])
-            elif metric == 'overdue_invoices':
-                for inv in get_overdue_invoices_queryset().select_related('customer').order_by('due_date'):
-                    writer.writerow([
-                        sanitize_csv_cell(inv.id),
-                        sanitize_csv_cell(inv.invoice_number),
-                        sanitize_csv_cell(inv.customer.name),
-                        sanitize_csv_cell(f"{inv.balance_due:.2f}"),
-                        sanitize_csv_cell(inv.due_date),
-                        sanitize_csv_cell(inv.status),
-                        sanitize_csv_cell(f"Total: ${inv.total_amount:.2f}"),
-                    ])
-            elif metric in ['revenue_collected', 'revenue', 'payments']:
-                for p in Payment.objects.all().select_related('customer', 'invoice').order_by('-payment_date'):
-                    writer.writerow([
-                        sanitize_csv_cell(p.id),
-                        sanitize_csv_cell(p.payment_number),
-                        sanitize_csv_cell(p.customer.name),
-                        sanitize_csv_cell(f"{p.amount:.2f}"),
-                        sanitize_csv_cell(p.payment_date),
-                        sanitize_csv_cell('COMPLETED'),
-                        sanitize_csv_cell(p.payment_method),
-                    ])
+            writer.writerow(DRILLDOWN_HEADER)
+            for obj in qs:
+                writer.writerow([sanitize_csv_cell(v) for v in drilldown_row(kind, obj)])
             return response
 
-        elif report_type == 'subscriptions':
+        if report_type == 'subscriptions':
             response['Content-Disposition'] = 'attachment; filename="brightloop_subscriptions.csv"'
             writer = csv.writer(response)
             writer.writerow(['Subscription Number', 'Customer', 'Plan', 'Status', 'Start Date', 'Expiry Date', 'Next Billing Date', 'MRR'])

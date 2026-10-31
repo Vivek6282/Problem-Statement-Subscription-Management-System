@@ -43,3 +43,16 @@ These non-report modules still use server-local `datetime.date.today()` and were
 - `apps/subscriptions/views.py` line 136
 - `apps/subscriptions/views.py` line 151
 - `apps/subscriptions/tasks.py` line 10
+
+## Metric definitions (overdue, billed, received, outstanding, churn)
+
+- Status: default applied, awaiting approval from Member 3.
+- **Business "today"** is the date in `BUSINESS_TIMEZONE` (see above).
+- **Outstanding**: sum of `balance_due` on invoices with status CONFIRMED, PARTIALLY_PAID or OVERDUE and `balance_due > 0`.
+- **Overdue**: an outstanding invoice with `due_date < business today`. A stored OVERDUE status with a due date of today or later is *not* overdue. DRAFT, PAID and CANCELLED are never overdue. The amount is the remaining balance, not the invoice total.
+- **Due soon (next 30 days)**: outstanding invoices due from today to today + 30 days. Never merged into Overdue.
+- **Billed**: `total_amount` of invoices with status CONFIRMED, PARTIALLY_PAID, PAID or OVERDUE, by `issue_date`.
+- **Received**: recorded payments, by `payment_date`.
+- **Churn (provisional)**: subscriptions CLOSED this month / (subscriptions started before the month, excluding DRAFT and QUOTATION, + subscriptions started this month). Close time uses `updated_at`, which also changes on unrelated edits, so the figure is approximate. The API returns `churn_provisional: true` until this is approved.
+- Every card is computed by the same queryset helper as its drill-down (`get_*_queryset` and `drilldown_queryset` in `apps/reports/views.py`); the drill-down response returns `count` and `total` so the two can be compared.
+- Dashboard, `mrr-breakdown` and `revenue-trends` responses carry `currency_code`, `generated_at` (UTC, ISO 8601) and `as_of_date`. `mrr-breakdown` and `revenue-trends` now return `{"results": [...], ...}` instead of a bare list.
