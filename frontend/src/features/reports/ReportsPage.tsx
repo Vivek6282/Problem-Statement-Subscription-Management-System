@@ -31,6 +31,7 @@ import { api } from '@/lib/api'
 import { formatCompactCurrency, formatCurrency, formatDate, formatDateTime, mapTrendForChart } from '@/lib/utils'
 import { describePeriod, filtersToQuery, useReportParams } from '@/lib/reportFilters'
 import { DrillDownModal } from '@/features/reports/DrillDownModal'
+import { AISummary } from '@/features/assistant/AISummary'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -193,6 +194,8 @@ export const ReportsPage: React.FC = () => {
           </button>
         </div>
       )}
+
+      <AISummary filters={filters} />
 
       {/* Header & Global Filters */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

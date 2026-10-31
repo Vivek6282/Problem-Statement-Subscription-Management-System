@@ -28,6 +28,7 @@ import { api } from '@/lib/api'
 import { formatCompactCurrency, formatCurrency, formatDate, formatDateTime, mapTrendForChart } from '@/lib/utils'
 import { describePeriod, useReportParams, type DrillMetric } from '@/lib/reportFilters'
 import { DrillDownModal } from '@/features/reports/DrillDownModal'
+import { AISummary } from '@/features/assistant/AISummary'
 import type { DashboardMetrics } from '@/types'
 import { useAuth } from '@/features/auth/AuthContext'
 import { StatusText } from '@/components/ui/StatusText'
@@ -226,6 +227,8 @@ export const DashboardPage: React.FC = () => {
         Currency {data.currency_code ?? 'USD'} · Period {describePeriod(filters)} · As of{' '}
         {data.generated_at ? formatDateTime(data.generated_at) : data.as_of_date || '—'}
       </p>
+
+      <AISummary filters={filters} />
 
       <section className="bl-overview-stats is-four" aria-label="Recurring revenue and receivables">
         <div>

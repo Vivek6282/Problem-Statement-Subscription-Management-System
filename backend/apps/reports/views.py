@@ -146,6 +146,50 @@ def _sum(qs, field):
     return qs.aggregate(total=Sum(field))['total'] or Decimal('0.00')
 
 
+def compute_churn_rate(first_of_month):
+    """Provisional: closed this month / (active at start of month + new this month), as 'x.x%'."""
+    closed_this_month = Subscription.objects.filter(
+        status=SubscriptionStatus.CLOSED,
+        updated_at__date__gte=first_of_month,
+    ).count()
+    new_this_month = Subscription.objects.filter(start_date__gte=first_of_month).count()
+    active_at_start = Subscription.objects.filter(
+        start_date__lt=first_of_month,
+    ).exclude(status__in=[SubscriptionStatus.DRAFT, SubscriptionStatus.QUOTATION]).count()
+    denom = active_at_start + new_this_month
+    if denom <= 0:
+        return "0.0%"
+    return f"{(Decimal(closed_this_month) / Decimal(denom) * Decimal('100.0')):.1f}%"
+
+
+def summary_figures(filters):
+    """
+    Aggregate-only figures for the assistant, computed with the same helpers the report endpoints use.
+    Plan/product filters narrow the subscription figures; dates narrow every figure that has a date.
+    """
+    today = business_today()
+    _, subs_qs, mrr = drilldown_queryset('mrr', filters)
+    _, overdue_qs, overdue_amount = drilldown_queryset('overdue_invoices', filters)
+    _, open_qs, outstanding = drilldown_queryset('outstanding', filters)
+    billed_qs = get_billed_invoices_queryset(filters['start_date'], filters['end_date'])
+    received_qs = get_received_payments_queryset(filters['start_date'], filters['end_date'])
+    return {
+        'currency_code': settings.CURRENCY_CODE,
+        'period_start': filters['start_date'].isoformat() if filters['start_date'] else None,
+        'period_end': filters['end_date'].isoformat() if filters['end_date'] else None,
+        'as_of_date': today.isoformat(),
+        'active_subscriptions': subs_qs.count(),
+        'mrr': f"{mrr:.2f}",
+        'arr': f"{(mrr * Decimal('12')).quantize(Decimal('0.01')):.2f}",
+        'billed': f"{_sum(billed_qs, 'total_amount'):.2f}",
+        'received': f"{_sum(received_qs, 'amount'):.2f}",
+        'outstanding': f"{outstanding:.2f}",
+        'overdue_count': overdue_qs.count(),
+        'overdue_amount': f"{overdue_amount:.2f}",
+        'churn_provisional': compute_churn_rate(today.replace(day=1)),
+    }
+
+
 class ConfigView(views.APIView):
     """Display currency and business calendar for the signed-in user. No conversion happens."""
     permission_classes = [permissions.IsAuthenticated]
@@ -223,17 +267,8 @@ class DashboardMetricsView(views.APIView):
             next_billing_date__lte=next_week
         ).count()
 
-        # 6. Churn rate (closed this month / (active at start of month + new this month))
-        closed_this_month = Subscription.objects.filter(
-            status=SubscriptionStatus.CLOSED,
-            updated_at__date__gte=first_of_month
-        ).count()
-        new_this_month = Subscription.objects.filter(start_date__gte=first_of_month).count()
-        active_at_start = Subscription.objects.filter(
-            start_date__lt=first_of_month
-        ).exclude(status__in=[SubscriptionStatus.DRAFT, SubscriptionStatus.QUOTATION]).count()
-        denom = active_at_start + new_this_month
-        churn_rate = f"{(Decimal(closed_this_month) / Decimal(denom) * Decimal('100.0')):.1f}%" if denom > 0 else "0.0%"
+        # 6. Churn rate (provisional)
+        churn_rate = compute_churn_rate(first_of_month)
 
         # 7. Monthly trend (past 6 months)
         revenue_trend = []
