@@ -50,6 +50,23 @@ class DashboardMetricsView(views.APIView):
             Q(due_date__lt=today, status__in=[InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID], balance_due__gt=0)
         )
         overdue_count = overdue_invoices_qs.count()
+        overdue_amount = overdue_invoices_qs.aggregate(total=Sum('balance_due'))['total'] or Decimal('0.00')
+        due_next_month = open_invoices.filter(
+            due_date__gte=today,
+            due_date__lte=today + datetime.timedelta(days=30)
+        ).aggregate(total=Sum('balance_due'))['total'] or Decimal('0.00')
+
+        # Instant payout fund (cleared revenue + current month liquid collections)
+        total_paid_invoices = Invoice.objects.filter(status=InvoiceStatus.PAID).aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+        instant_payout_available = revenue_this_month + total_paid_invoices
+
+        # Average turnaround days to get paid
+        paid_invoices_with_duration = Invoice.objects.filter(status=InvoiceStatus.PAID, paid_amount__gt=0)
+        avg_days_to_pay = 16  # baseline standard
+        if paid_invoices_with_duration.exists():
+            days_list = [(inv.updated_at.date() - inv.issue_date).days for inv in paid_invoices_with_duration[:20] if (inv.updated_at.date() - inv.issue_date).days >= 0]
+            if days_list:
+                avg_days_to_pay = max(3, round(sum(days_list) / len(days_list)))
 
         # 5. Upcoming renewals (next 7 days)
         upcoming_renewals_count = Subscription.objects.filter(
@@ -90,14 +107,14 @@ class DashboardMetricsView(views.APIView):
         recent_subscriptions = list(Subscription.objects.select_related('customer', 'plan').order_by('-created_at')[:5].values(
             'id', 'subscription_number', 'customer__name', 'plan__name', 'status', 'created_at'
         ))
-        recent_invoices = list(Invoice.objects.select_related('customer').order_by('-created_at')[:5].values(
-            'id', 'invoice_number', 'customer__name', 'total_amount', 'balance_due', 'status', 'issue_date'
+        recent_invoices = list(Invoice.objects.select_related('customer').order_by('-created_at')[:8].values(
+            'id', 'invoice_number', 'customer__name', 'customer__company', 'customer__email', 'total_amount', 'balance_due', 'status', 'issue_date', 'due_date'
         ))
         recent_payments = list(Payment.objects.select_related('customer', 'invoice').order_by('-created_at')[:5].values(
             'id', 'payment_number', 'customer__name', 'invoice__invoice_number', 'amount', 'payment_method', 'payment_date'
         ))
         overdue_invoices = list(overdue_invoices_qs.select_related('customer').order_by('due_date')[:5].values(
-            'id', 'invoice_number', 'customer__name', 'total_amount', 'balance_due', 'due_date'
+            'id', 'invoice_number', 'customer__name', 'customer__company', 'total_amount', 'balance_due', 'due_date'
         ))
 
         return Response({
@@ -109,6 +126,10 @@ class DashboardMetricsView(views.APIView):
                 'revenue_this_month': float(revenue_this_month),
                 'outstanding_balance': float(outstanding_balance),
                 'overdue_count': overdue_count,
+                'overdue_amount': float(overdue_amount),
+                'due_next_month': float(due_next_month),
+                'avg_days_to_pay': avg_days_to_pay,
+                'instant_payout_available': float(instant_payout_available),
                 'upcoming_renewals_count': upcoming_renewals_count
             },
             'revenue_trend': revenue_trend,

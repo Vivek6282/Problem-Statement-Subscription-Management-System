@@ -8,9 +8,10 @@ import datetime
 
 from apps.accounts.permissions import CustomerAccessPolicyPermission, IsStaffOrAdmin
 from apps.audit.models import AuditEvent
-from .models import Invoice, InvoiceStatus
+from .models import Invoice, InvoiceItem, InvoiceStatus
 from .serializers import InvoiceSerializer, InvoiceCreateSerializer
 from .pdf import generate_invoice_pdf
+from decimal import Decimal
 
 class InvoiceViewSet(viewsets.ModelViewSet):
     """
@@ -126,3 +127,38 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         )
 
         return Response({'message': f"Invoice sent to {customer.email}"})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsStaffOrAdmin], url_path='add-item')
+    def add_item(self, request, pk=None):
+        inv = self.get_object()
+        if inv.status in [InvoiceStatus.PAID, InvoiceStatus.CANCELLED]:
+            return Response({'error': "Cannot add items to paid or cancelled invoices."}, status=status.HTTP_400_BAD_REQUEST)
+
+        product_name = request.data.get('product_name', 'Professional Consulting & Support')
+        quantity = int(request.data.get('quantity', 1))
+        unit_price = Decimal(str(request.data.get('unit_price', '500.00')))
+        discount_amount = Decimal(str(request.data.get('discount_amount', '0.00')))
+        tax_amount = Decimal(str(request.data.get('tax_amount', '0.00')))
+        line_total = (Decimal(quantity) * unit_price) - discount_amount + tax_amount
+
+        InvoiceItem.objects.create(
+            invoice=inv,
+            product_name=product_name,
+            product_sku=request.data.get('product_sku', 'SRV-CUSTOM'),
+            variant_name=request.data.get('variant_name', ''),
+            quantity=quantity,
+            unit_price=unit_price,
+            discount_amount=discount_amount,
+            tax_amount=tax_amount,
+            line_total=line_total
+        )
+        inv.recalculate_totals()
+
+        AuditEvent.log_event(
+            action='INVOICE_ITEM_ADDED',
+            entity_type='Invoice',
+            entity_id=inv.invoice_number,
+            description=f"Added item '{product_name}' (${line_total:,.2f}) to invoice {inv.invoice_number}.",
+            user=request.user
+        )
+        return Response(InvoiceSerializer(inv).data)

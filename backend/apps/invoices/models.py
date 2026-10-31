@@ -86,6 +86,19 @@ class Invoice(models.Model):
             self.status = InvoiceStatus.OVERDUE
             self.save(update_fields=['status', 'updated_at'])
 
+    def recalculate_totals(self):
+        items = self.items.all()
+        subtotal = sum((Decimal(i.quantity) * i.unit_price for i in items), Decimal('0.00'))
+        discount_amount = sum((i.discount_amount for i in items), Decimal('0.00'))
+        tax_amount = sum((i.tax_amount for i in items), Decimal('0.00'))
+        total_amount = subtotal - discount_amount + tax_amount
+        self.subtotal = subtotal
+        self.discount_amount = discount_amount
+        self.tax_amount = tax_amount
+        self.total_amount = total_amount
+        self.balance_due = max(Decimal('0.00'), total_amount - self.paid_amount)
+        self.save(update_fields=['subtotal', 'discount_amount', 'tax_amount', 'total_amount', 'balance_due', 'updated_at'])
+
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(
         Invoice,

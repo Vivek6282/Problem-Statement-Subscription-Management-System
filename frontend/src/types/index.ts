@@ -282,6 +282,10 @@ export interface DashboardMetrics {
     revenue_this_month: number;
     outstanding_balance: number;
     overdue_count: number;
+    overdue_amount?: number;
+    due_next_month?: number;
+    avg_days_to_pay?: number;
+    instant_payout_available?: number;
     upcoming_renewals_count: number;
   };
   revenue_trend: Array<{
