@@ -24,6 +24,7 @@ import { TaxesPage } from '@/features/taxes/TaxesPage'
 import { DiscountsPage } from '@/features/discounts/DiscountsPage'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { AuditPage } from '@/features/audit/AuditPage'
+import { StaffPage } from '@/features/staff/StaffPage'
 import { CustomerPortalPage } from '@/features/portal/CustomerPortalPage'
 import { LandingPage } from '@/features/landing/LandingPage'
 
@@ -62,6 +63,7 @@ export const App: React.FC = () => {
               <Route path="/discounts" element={<DiscountsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/audit" element={<AuditPage />} />
+              <Route path="/staff" element={<StaffPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/portal" element={<CustomerPortalPage />} />
             </Route>
@@ -74,5 +76,4 @@ export const App: React.FC = () => {
     </QueryClientProvider>
   )
 }
-
 export default App

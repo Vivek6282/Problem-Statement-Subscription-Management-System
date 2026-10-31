@@ -12,14 +12,19 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'phone',
-            'role', 'is_active', 'is_staff', 'is_superuser', 'date_joined',
+            'role', 'is_active', 'is_staff', 'is_superuser', 'last_login', 'date_joined',
             'full_name', 'customer_id'
         ]
-        read_only_fields = ['id', 'date_joined', 'is_staff', 'is_superuser', 'customer_id']
+        read_only_fields = ['id', 'date_joined', 'last_login', 'is_staff', 'is_superuser', 'customer_id']
 
     def get_customer_id(self, obj):
         profile = getattr(obj, 'customer_profile', None)
         return profile.id if profile else None
+
+    def validate_role(self, value):
+        if value not in [Role.ADMIN, Role.STAFF]:
+            raise serializers.ValidationError(_("Role can only be ADMIN or STAFF from staff management."))
+        return value
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})

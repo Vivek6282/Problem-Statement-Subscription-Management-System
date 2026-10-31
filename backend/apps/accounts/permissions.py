@@ -24,6 +24,21 @@ class IsAdminOrReadOnly(permissions.BasePermission):
             return True
         return request.user.is_admin_user
 
+class IsAdminOrStaffReadOnly(permissions.BasePermission):
+    """
+    Allows Staff and Admin read-only access (GET/HEAD/OPTIONS).
+    Allows Admin write access (POST/PUT/PATCH/DELETE).
+    Customers are denied all access.
+    """
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return False
+        if not request.user.is_staff_user:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_admin_user
+
 class CustomerAccessPolicyPermission(permissions.BasePermission):
     """
     Object-level permission preventing cross-customer access.
@@ -52,4 +67,3 @@ class CustomerAccessPolicyPermission(permissions.BasePermission):
             return True
 
         return False
-

@@ -13,6 +13,7 @@ import {
   Receipt,
   BarChart3,
   ShieldCheck,
+  UserCog,
   ChevronLeft,
   ChevronRight,
   Sparkles,
@@ -26,7 +27,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => {
-  const { user, isStaff } = useAuth()
+  const { isStaff, isAdmin } = useAuth()
 
   const navItems = [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', show: isStaff },
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
     { label: 'Discounts', icon: Percent, path: '/discounts', show: isStaff },
     { label: 'Reports', icon: BarChart3, path: '/reports', show: isStaff },
     { label: 'Audit Trail', icon: ShieldCheck, path: '/audit', show: isStaff },
+    { label: 'Staff & Roles', icon: UserCog, path: '/staff', show: isAdmin },
   ]
 
   return (
@@ -103,16 +105,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
           })}
       </nav>
 
-      {/* User profile footer info */}
-      <div className="p-3 border-t border-slate-800/80">
-        <div className={cn('flex items-center gap-3 p-2 rounded-xl bg-slate-900/50', collapsed && 'justify-center')}>
-          <div className="w-8 h-8 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold text-xs text-white uppercase flex-shrink-0">
-            {user?.first_name?.[0] || user?.email?.[0] || 'U'}
+      {/* Footer Info */}
+      <div className="p-4 border-t border-slate-800/80">
+        <div
+          className={cn(
+            'flex items-center gap-3 px-2 py-2 rounded-xl bg-slate-900/60 border border-slate-800/60',
+            collapsed && 'justify-center p-2'
+          )}
+        >
+          <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-300 font-semibold text-xs border border-slate-700">
+            BL
           </div>
           {!collapsed && (
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-white truncate">{user?.full_name || user?.email}</p>
-              <p className="text-[10px] text-slate-400 font-medium capitalize">{user?.role?.toLowerCase()}</p>
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold text-white truncate">Brightloop ERP</span>
+              <span className="text-[10px] text-slate-400 font-mono">v1.2.0 • Pro</span>
             </div>
           )}
         </div>
@@ -120,4 +127,4 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
     </aside>
   )
 }
-
+export default Sidebar
