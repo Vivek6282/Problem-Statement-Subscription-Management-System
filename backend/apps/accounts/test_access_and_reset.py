@@ -195,8 +195,8 @@ class CustomerIsolationTests(TestCase):
         due = datetime.date.today() + datetime.timedelta(days=30)
         alice_customer = Customer.objects.create(user=self.alice, name='Alice', email=self.alice.email)
         bob_customer = Customer.objects.create(user=self.bob, name='Bob', email=self.bob.email)
-        self.alice_invoice = Invoice.objects.create(customer=alice_customer, due_date=due)
-        self.bob_invoice = Invoice.objects.create(customer=bob_customer, due_date=due)
+        self.alice_invoice = Invoice.objects.create(customer=alice_customer, due_date=due, status='CONFIRMED')  # customers never see drafts
+        self.bob_invoice = Invoice.objects.create(customer=bob_customer, due_date=due, status='CONFIRMED')
 
     @staticmethod
     def ids(res):
